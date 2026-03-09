@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import json
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, explode
+from pyspark.sql.functions import col, explode, isnull, sum
 
 
 logging.basicConfig(
@@ -29,6 +29,29 @@ def read_data(folder: str) -> DataFrame:
     return df
 
 def transform_bikepoint(df: DataFrame) -> DataFrame:
+    # count = df.select([
+    #     sum(col(c).isNull().cast("int")).alias(c)
+    #     for c in df.columns
+    # ])
+
+    # count.show()
+
+    # df_exploded = df.select(explode("additionalProperties").alias("prop"))
+
+    # df_exploded = df_exploded.select(
+    #     col("prop.key").alias("key"),
+    #     col("prop.value").alias("value")
+    # )
+
+    # count = df_exploded.select([
+    #     sum(col(c).isNull().cast("int")).alias(c)
+    #     for c in df_exploded.columns
+    # ])
+
+    # count.show()
+
+    #TODO: Conferir: Tipos de dados, consistencia, outliers, formatacao strings, 
+
     ...
 
 def transform_arrivals(df: DataFrame) -> DataFrame:
@@ -39,15 +62,14 @@ def transform_status(df: DataFrame) -> DataFrame:
 
 
 def run_transform():
-    # bikepoint_df = read_data("data/raw/bikepoint")
-    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    bikepoint_df = read_data("data/raw/bikepoint")
+    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
     # tubestatus_df = read_data("data/raw/tubestatus")
     # df_transformed_tube_status = transform_bikepoint(tubestatus_df)
 
-    arrivals_df = read_data("data/raw/arrivals")
+    # arrivals_df = read_data("data/raw/arrivals")
     # df_transformed_arrivals = transform_bikepoint(arrivals_df)
 
-    arrivals_df.printSchema()
 
 run_transform()
