@@ -10,3 +10,11 @@ ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 RUN pip install pyspark
 
 WORKDIR /app
+
+COPY data/raw data/raw
+
+COPY src src
+
+VOLUME ["src/transform"]
+
+CMD ["python", "-m", "src.transform.transform"]
