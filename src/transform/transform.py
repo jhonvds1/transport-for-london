@@ -55,27 +55,36 @@ def transform_bikepoint(df: DataFrame) -> DataFrame:
     ...
 
 def transform_arrivals(df: DataFrame) -> DataFrame:
-    count = df.select([
-        sum(col(c).isNull().cast("int")).alias(c)
-        for c in df.columns
-    ])
-
-    count.show()
-
-def transform_status(df: DataFrame) -> DataFrame:
-    
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
 
-    
 
+def transform_status(df: DataFrame) -> DataFrame:
+    df_exploded = df.select(
+        "name", "modeName",
+        explode("lineStatuses").alias("prop")
+    )
+
+    df_status = df_exploded.select(
+        "name", "modeName",
+        col("prop.lineId").alias("lineId"),
+        col("prop.statusSeverityDescription").alias("status"),
+        col("prop.reason").alias("reason"),
+        explode("prop.validityPeriods").alias("time")
+    )
+
+    df_final = df_status.select(
+        "name", "modeName", "lineId", "status", "reason",
+        col("time.fromDate").alias("start_time"),
+        col("time.toDate").alias("end_time")
+    )
 
 
 def run_transform():
-    # bikepoint_df = read_data("data/raw/bikepoint")
-    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    bikepoint_df = read_data("data/raw/bikepoint")
+    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
-    tubestatus_df = read_data("data/raw/tubestatus")
-    df_transformed_tube_status = transform_status(tubestatus_df)
+    # tubestatus_df = read_data("data/raw/tubestatus")
+    # df_transformed_tube_status = transform_status(tubestatus_df)
 
     # arrivals_df = read_data("data/raw/arrivals")
     # df_transformed_arrivals = transform_bikepoint(arrivals_df)
