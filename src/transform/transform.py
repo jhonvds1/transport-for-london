@@ -64,8 +64,8 @@ def transform_arrivals(df: DataFrame) -> DataFrame:
 
 def transform_status(df: DataFrame) -> DataFrame:
     
-    df_exploded = df.select(explode("lineStatuses").alias("status"))
-    df_exploded.printSchema()
+    df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
+
     
 
 
