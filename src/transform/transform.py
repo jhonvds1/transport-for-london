@@ -29,30 +29,17 @@ def read_data(folder: str) -> DataFrame:
     return df
 
 def transform_bikepoint(df: DataFrame) -> DataFrame:
-    # count = df.select([
-    #     sum(col(c).isNull().cast("int")).alias(c)
-    #     for c in df.columns
-    # ])
 
-    # count.show()
+    # df_exploded = df.select("BikePoints_1", "commonName")
 
-    # df_exploded = df.select(explode("additionalProperties").alias("prop"))
+    df_exploded = df.select(explode("additionalProperties").alias("prop"))
 
-    # df_exploded = df_exploded.select(
-    #     col("prop.key").alias("key"),
-    #     col("prop.value").alias("value")
-    # )
+    df_props = df_exploded.select(
+        col("prop.key").alias("key"),
+        col("prop.value").alias("value"),
+    )
 
-    # count = df_exploded.select([
-    #     sum(col(c).isNull().cast("int")).alias(c)
-    #     for c in df_exploded.columns
-    # ])
-
-    # count.show()
-
-    #TODO: Conferir: Tipos de dados, consistencia, outliers, formatacao strings, 
-
-    ...
+    df_props.show()
 
 def transform_arrivals(df: DataFrame) -> DataFrame:
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
