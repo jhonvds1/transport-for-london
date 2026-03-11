@@ -38,20 +38,45 @@ def transform_bikepoint(df: DataFrame) -> DataFrame:
         col("Prop.value")
         )
 
-    df_wide = df_bike.groupBy("id", "commonName") \
+    df_final = df_bike.groupBy("id", "commonName") \
             .pivot("key", ["TerminalName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes"]) \
             .agg(first("value"))
 
-    df_wide = df_wide.withColumn("mode", lit("bike"))
-    df_wide = df_wide.withColumn("platform_name", lit(None))
-    df_wide = df_wide.withColumn("direction", lit(None))
+    df_final = df_final.withColumn("mode", lit("bike"))
+    df_final = df_final.withColumn("platform_name", lit(None))
+    df_final = df_final.withColumn("direction", lit(None))
 
-    df_wide.show()
+    not_null_columns = ['id', 'commonName', 'TerminalName', 'NbBikes', 'NbEmptyDocks', 'NbDocks', 'NbStandardBikes', 'NbEBikes', 'mode']
 
-        
+    df_final = df_final.dropna(subset=not_null_columns)
+
+    df_final = df_final.drop_duplicates(subset=["id"])
+
+    df_final = df_final.withColumn("NbBikes", col("NbBikes").cast("int")) \
+        .withColumn("NbEmptyDocks", col("NbEmptyDocks").cast("int")) \
+        .withColumn("NbDocks", col("NbDocks").cast("int")) \
+        .withColumn("NbStandardBikes", col("NbStandardBikes").cast("int")) \
+        .withColumn("NbEBikes", col("NbEBikes").cast("int")
+    )
+
+    df_final = df_final.filter(
+        (col("NbEmptyDocks") >= 0) &
+        (col("NbDocks") >= 0) &
+        (col("NbStandardBikes") >= 0) &
+        (col("NbEBikes") >= 0) 
+    )
+
+    df_final = df_final.filter(
+        col("NbBikes") + col("NbEmptyDocks") == col("NbDocks")
+    )
+
+    df_final.show()
+
 
 def transform_arrivals(df: DataFrame) -> DataFrame:
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
+
+    #terminal_name = lit(None)
 
 
 def transform_status(df: DataFrame) -> DataFrame:
@@ -76,11 +101,11 @@ def transform_status(df: DataFrame) -> DataFrame:
 
 
 def run_transform():
-    bikepoint_df = read_data("data/raw/bikepoint")
-    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    # bikepoint_df = read_data("data/raw/bikepoint")
+    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
-    # tubestatus_df = read_data("data/raw/tubestatus")
-    # df_transformed_tube_status = transform_status(tubestatus_df)
+    tubestatus_df = read_data("data/raw/tubestatus")
+    df_transformed_tube_status = transform_status(tubestatus_df)
 
     # arrivals_df = read_data("data/raw/arrivals")
     # df_transformed_arrivals = transform_bikepoint(arrivals_df)
