@@ -99,6 +99,7 @@ def transform_status(df: DataFrame) -> DataFrame:
         col("time.toDate").alias("end_time")
     )
 
+    df_final.show()
 
 def run_transform():
     # bikepoint_df = read_data("data/raw/bikepoint")
