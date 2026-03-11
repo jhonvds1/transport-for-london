@@ -28,7 +28,7 @@ def read_data(folder: str) -> DataFrame:
     
     return df
 
-def transform_bikepoint(df: DataFrame) -> DataFrame:
+def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
 
     df_exploded = df.select("id", "commonName", explode("additionalProperties").alias("prop"))
 
@@ -43,8 +43,6 @@ def transform_bikepoint(df: DataFrame) -> DataFrame:
             .agg(first("value"))
 
     df_final = df_final.withColumn("mode", lit("bike"))
-    df_final = df_final.withColumn("platform_name", lit(None))
-    df_final = df_final.withColumn("direction", lit(None))
 
     not_null_columns = ['id', 'commonName', 'TerminalName', 'NbBikes', 'NbEmptyDocks', 'NbDocks', 'NbStandardBikes', 'NbEBikes', 'mode']
 
@@ -70,8 +68,11 @@ def transform_bikepoint(df: DataFrame) -> DataFrame:
         col("NbBikes") + col("NbEmptyDocks") == col("NbDocks")
     )
 
-    df_final.show()
+    dim_station = df_final.select("id", "commonName", "TerminalName", "mode")
 
+    fact_bike_status = df_final.select("id", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
+
+    return fact_bike_status, dim_station
 
 def transform_arrivals(df: DataFrame) -> DataFrame:
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
@@ -79,7 +80,7 @@ def transform_arrivals(df: DataFrame) -> DataFrame:
     #terminal_name = lit(None)
 
 
-def transform_status(df: DataFrame) -> DataFrame:
+def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     df_exploded = df.select(
         "name", "modeName",
         explode("lineStatuses").alias("prop")
@@ -99,11 +100,26 @@ def transform_status(df: DataFrame) -> DataFrame:
         col("time.toDate").alias("end_time")
     )
 
-    df_final.show()
+    df_final = df_final.dropna(subset=["lineId", "start_time", "end_time"])
+
+    dim_line = df_final.select(
+        col("lineId"),
+        col("name"),
+        col("modeName")
+    )
+
+    dim_line = dim_line.drop_duplicates(["lineId"])
+
+    fact_tube_status = df_final.select("lineId", "start_time", "end_time", "status", "reason")
+
+    fact_tube_status = fact_tube_status.withColumn("start_time", col("start_time").cast("timestamp"))
+    fact_tube_status = fact_tube_status.withColumn("end_time", col("end_time").cast("timestamp"))
+
+    return fact_tube_status, dim_line
 
 def run_transform():
-    # bikepoint_df = read_data("data/raw/bikepoint")
-    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    bikepoint_df = read_data("data/raw/bikepoint")
+    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
     tubestatus_df = read_data("data/raw/tubestatus")
     df_transformed_tube_status = transform_status(tubestatus_df)
@@ -111,5 +127,7 @@ def run_transform():
     # arrivals_df = read_data("data/raw/arrivals")
     # df_transformed_arrivals = transform_bikepoint(arrivals_df)
 
+
+    #TODO: DEFINIR O QUE FAZER EM RELACAO AOS IDS EM GERAL
 
 run_transform()
