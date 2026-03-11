@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import json
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, explode, isnull, sum
+from pyspark.sql.functions import col, explode, first, lit
 
 
 logging.basicConfig(
@@ -30,16 +30,25 @@ def read_data(folder: str) -> DataFrame:
 
 def transform_bikepoint(df: DataFrame) -> DataFrame:
 
-    # df_exploded = df.select("BikePoints_1", "commonName")
+    df_exploded = df.select("id", "commonName", explode("additionalProperties").alias("prop"))
 
-    df_exploded = df.select(explode("additionalProperties").alias("prop"))
+    df_bike = df_exploded.select(
+        "id", "commonName", 
+        col("prop.key"),
+        col("Prop.value")
+        )
 
-    df_props = df_exploded.select(
-        col("prop.key").alias("key"),
-        col("prop.value").alias("value"),
-    )
+    df_wide = df_bike.groupBy("id", "commonName") \
+            .pivot("key", ["TerminalName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes"]) \
+            .agg(first("value"))
 
-    df_props.show()
+    df_wide = df_wide.withColumn("mode", lit("bike"))
+    df_wide = df_wide.withColumn("platform_name", lit(None))
+    df_wide = df_wide.withColumn("direction", lit(None))
+
+    df_wide.show()
+
+        
 
 def transform_arrivals(df: DataFrame) -> DataFrame:
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
