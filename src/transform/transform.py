@@ -68,11 +68,11 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         col("NbBikes") + col("NbEmptyDocks") == col("NbDocks")
     )
 
-    dim_station = df_final.select("id", "commonName", "TerminalName", "mode")
+    dim_station = df_final.select("id", "commonName", "mode")
 
-    fact_bike_status = df_final.select("id", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
+    fact_bike_status = df_final.select("id", "commonName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
 
-    return fact_bike_status, dim_station
+    return dim_station, fact_bike_status
 
 def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
@@ -90,20 +90,15 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
     dim_line = dim_line.dropna()
     dim_station = dim_station.dropna()
 
-    dim_vehicle = dim_vehicle.drop_duplicates()
-    # fact_arrival = fact_arrival.drop_duplicates() AQUI NO ID DA FACT ????
-    # dim_station = dim_station.drop_duplicates() AQUI NO ID DA station ????
-    # dim_line = dim_line.drop_duplicates() AQUI NA IDLINE ????
+    fact_arrival = fact_arrival.drop_duplicates(subset=['id'])
+    dim_vehicle = dim_vehicle.drop_duplicates(subset=['vehicleId'])
+    dim_line = dim_line.drop_duplicates(subset=['lineId'])
+    dim_station = dim_station.drop_duplicates(subset=['naptanId'])
 
-    dim_station.printSchema()
-    dim_line.printSchema()
-    dim_vehicle.printSchema()
-    fact_arrival.printSchema()
-
-    # cast id bigint
+    fact_arrival = fact_arrival.withColumn("id", col("id").cast("bigint"))
 
 
-    return fact_arrival, dim_vehicle, dim_line, dim_station
+    return dim_vehicle, dim_line, dim_station, fact_arrival
 
 def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     df_exploded = df.select(
@@ -140,7 +135,7 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     fact_tube_status = fact_tube_status.withColumn("start_time", col("start_time").cast("timestamp"))
     fact_tube_status = fact_tube_status.withColumn("end_time", col("end_time").cast("timestamp"))
 
-    return fact_tube_status, dim_line
+    return dim_line, fact_tube_status
 
 def run_transform():
     # bikepoint_df = read_data("data/raw/bikepoint")
