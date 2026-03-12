@@ -18,7 +18,7 @@ spark = SparkSession.builder.appName("tfl_transform").getOrCreate()
 
 
 def read_data(folder: str) -> DataFrame:
-
+    
     for file in Path(folder).rglob("*.json"):
         logger_transform.info(f"Recebendo dados do arquivo: {file}")
 
@@ -29,8 +29,13 @@ def read_data(folder: str) -> DataFrame:
     return df
 
 def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
+    logger_transform.info("Iniciando tranformacao do bikepoint")
+    
+    logger_transform.info("Explodindo dados do bikepoint")
 
     df_exploded = df.select("id", "commonName", explode("additionalProperties").alias("prop"))
+
+    logger_transform.info("Selecionando dados do bikepoint")
 
     df_bike = df_exploded.select(
         "id", "commonName", 
@@ -38,17 +43,24 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         col("Prop.value")
         )
 
+
     df_final = df_bike.groupBy("id", "commonName") \
             .pivot("key", ["TerminalName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes"]) \
             .agg(first("value"))
 
     df_final = df_final.withColumn("mode", lit("bike"))
 
+    logger_transform.info("Removendo colunas nulas")
+
     not_null_columns = ['id', 'commonName', 'TerminalName', 'NbBikes', 'NbEmptyDocks', 'NbDocks', 'NbStandardBikes', 'NbEBikes', 'mode']
 
     df_final = df_final.dropna(subset=not_null_columns)
 
+    logger_transform.info("Removendo id's duplicados")
+
     df_final = df_final.drop_duplicates(subset=["id"])
+
+    logger_transform.info("Realizando Cast de tipos")
 
     df_final = df_final.withColumn("NbBikes", col("NbBikes").cast("int")) \
         .withColumn("NbEmptyDocks", col("NbEmptyDocks").cast("int")) \
@@ -56,6 +68,8 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         .withColumn("NbStandardBikes", col("NbStandardBikes").cast("int")) \
         .withColumn("NbEBikes", col("NbEBikes").cast("int")
     )
+
+    logger_transform.info("Realizando logica de negocios")
 
     df_final = df_final.filter(
         (col("NbEmptyDocks") >= 0) &
@@ -68,13 +82,20 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         col("NbBikes") + col("NbEmptyDocks") == col("NbDocks")
     )
 
+    logger_transform.info("Dim_station criada com sucesso!")
+
     dim_station = df_final.select("id", "commonName", "mode")
 
+    logger_transform.info("fact_bike_status criada com sucesso!")
+    
     fact_bike_status = df_final.select("id", "commonName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
 
+    logger_transform.info("Finalizando tranformacao do bikepoint")
     return dim_station, fact_bike_status
 
 def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
+    logger_transform.info("Iniciando tranformacao do arrivals")
+    
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
 
     dim_vehicle = df.select("vehicleId")
@@ -97,10 +118,13 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
 
     fact_arrival = fact_arrival.withColumn("id", col("id").cast("bigint"))
 
+    logger_transform.info("Finalizando tranformacao do arrivals")
 
     return dim_vehicle, dim_line, dim_station, fact_arrival
 
 def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
+    logger_transform.info("Iniciando tranformacao do tubestatus")
+    
     df_exploded = df.select(
         "name", "modeName",
         explode("lineStatuses").alias("prop")
@@ -135,19 +159,24 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     fact_tube_status = fact_tube_status.withColumn("start_time", col("start_time").cast("timestamp"))
     fact_tube_status = fact_tube_status.withColumn("end_time", col("end_time").cast("timestamp"))
 
+    logger_transform.info("Finalizando tranformacao do tubestatus")
+
     return dim_line, fact_tube_status
 
 def run_transform():
-    # bikepoint_df = read_data("data/raw/bikepoint")
-    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    logger_transform.info("Processo de transformacao iniciando!")
 
-    # tubestatus_df = read_data("data/raw/tubestatus")
-    # df_transformed_tube_status = transform_status(tubestatus_df)
+    bikepoint_df = read_data("data/raw/bikepoint")
+    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+
+    tubestatus_df = read_data("data/raw/tubestatus")
+    df_transformed_tube_status = transform_status(tubestatus_df)
 
     arrivals_df = read_data("data/raw/arrivals")
     df_transformed_arrivals = transform_arrivals(arrivals_df)
 
+    logger_transform.info("Processo de transformacao finalizado!")
 
-    #TODO: DEFINIR O QUE FAZER EM RELACAO AOS IDS EM GERAL
+    #TODO: DEFINIR O QUE FAZER EM RELACAO AOS IDS da dim_time
 
 run_transform()
