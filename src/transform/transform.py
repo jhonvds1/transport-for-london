@@ -74,11 +74,36 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
 
     return fact_bike_status, dim_station
 
-def transform_arrivals(df: DataFrame) -> DataFrame:
+def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
 
-    #terminal_name = lit(None)
+    dim_vehicle = df.select("vehicleId")
 
+    fact_arrival = df.select("id", "naptanId", "vehicleId", "timeToStation", "lineId")
+
+    dim_line = df.select("lineId", "lineName", "modeName")
+
+    dim_station = df.select("naptanId", "stationName", "modeName")
+
+    dim_vehicle = dim_vehicle.dropna()
+    fact_arrival = fact_arrival.dropna()
+    dim_line = dim_line.dropna()
+    dim_station = dim_station.dropna()
+
+    dim_vehicle = dim_vehicle.drop_duplicates()
+    # fact_arrival = fact_arrival.drop_duplicates() AQUI NO ID DA FACT ????
+    # dim_station = dim_station.drop_duplicates() AQUI NO ID DA station ????
+    # dim_line = dim_line.drop_duplicates() AQUI NA IDLINE ????
+
+    dim_station.printSchema()
+    dim_line.printSchema()
+    dim_vehicle.printSchema()
+    fact_arrival.printSchema()
+
+    # cast id bigint
+
+
+    return fact_arrival, dim_vehicle, dim_line, dim_station
 
 def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     df_exploded = df.select(
@@ -118,14 +143,14 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     return fact_tube_status, dim_line
 
 def run_transform():
-    bikepoint_df = read_data("data/raw/bikepoint")
-    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    # bikepoint_df = read_data("data/raw/bikepoint")
+    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
-    tubestatus_df = read_data("data/raw/tubestatus")
-    df_transformed_tube_status = transform_status(tubestatus_df)
+    # tubestatus_df = read_data("data/raw/tubestatus")
+    # df_transformed_tube_status = transform_status(tubestatus_df)
 
-    # arrivals_df = read_data("data/raw/arrivals")
-    # df_transformed_arrivals = transform_bikepoint(arrivals_df)
+    arrivals_df = read_data("data/raw/arrivals")
+    df_transformed_arrivals = transform_arrivals(arrivals_df)
 
 
     #TODO: DEFINIR O QUE FAZER EM RELACAO AOS IDS EM GERAL
