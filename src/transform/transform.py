@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import json
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, explode, first, lit, month, year, day, hour, date_trunc
+from pyspark.sql.functions import col, explode, first, lit, month, year, day, hour, date_trunc, to_date
 
 
 logging.basicConfig(
@@ -66,9 +66,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         .withColumn("NbEmptyDocks", col("NbEmptyDocks").cast("int")) \
         .withColumn("NbDocks", col("NbDocks").cast("int")) \
         .withColumn("NbStandardBikes", col("NbStandardBikes").cast("int")) \
-        .withColumn("NbEBikes", col("NbEBikes").cast("int")) \
-        .withColumn("modified", col("modified").cast("timestamp")
-    )
+        .withColumn("NbEBikes", col("NbEBikes").cast("int"))
 
     logger_transform.info("Realizando logica de negocios")
 
@@ -104,10 +102,9 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     .withColumn("year", year(col("modified"))) \
     .withColumn("month", month(col("modified"))) \
     .withColumn("day", day(col("modified"))) \
-    .withColumn("hour", hour(col("modified")))
-
-
-    dim_time = dim_time.withColumnRenamed("modified", "date")
+    .withColumn("hour", hour(col("modified"))) \
+    .withColumn("date", to_date(col("modified"))) \
+    .drop("modified")
 
     return dim_station,  dim_time, fact_bike_status
 
@@ -156,10 +153,8 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
     .withColumn("month", month(col("expectedArrival"))) \
     .withColumn("day", day(col("expectedArrival"))) \
     .withColumn("hour", hour(col("expectedArrival"))) \
-
-    dim_time.show()
-
-    dim_time.printSchema()
+    .withColumn("date", to_date(col("expectedArrival"))) \
+    .drop("expectedArrival")
 
     return dim_vehicle, dim_line, dim_station, dim_time, fact_arrival
 
@@ -220,14 +215,14 @@ def load_trusted_data(path) -> None:
 def run_transform() -> None:
     logger_transform.info("Processo de transformacao iniciando!")
 
-    # bikepoint_df = read_data("data/raw/bikepoint")
-    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    bikepoint_df = read_data("data/raw/bikepoint")
+    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
     # tubestatus_df = read_data("data/raw/tubestatus")
     # df_transformed_tube_status = transform_status(tubestatus_df)
 
-    arrivals_df = read_data("data/raw/arrivals")
-    df_transformed_arrivals = transform_arrivals(arrivals_df)
+    # arrivals_df = read_data("data/raw/arrivals")
+    # df_transformed_arrivals = transform_arrivals(arrivals_df)
 
     logger_transform.info("Processo de transformacao finalizado!")
 
