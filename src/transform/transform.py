@@ -28,7 +28,7 @@ def read_data(folder: str) -> DataFrame:
     
     return df
 
-def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
+def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
     logger_transform.info("Iniciando tranformacao do bikepoint")
     
     logger_transform.info("Explodindo dados do bikepoint")
@@ -108,7 +108,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
 
     return dim_station,  dim_time, fact_bike_status
 
-def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
+def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame, DataFrame]:
     logger_transform.info("Iniciando tranformacao do arrivals")
     
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "expectedArrival")
@@ -158,7 +158,7 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
 
     return dim_vehicle, dim_line, dim_station, dim_time, fact_arrival
 
-def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
+def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
     logger_transform.info("Iniciando tranformacao do tubestatus")
     
     df_exploded = df.select(
@@ -194,25 +194,39 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
 
     dim_line = dim_line.drop_duplicates(["lineId"])
 
-    dim_time = df_status.select(
-        col("time.fromDate").alias("start_time"),
-        col("time.toDate").alias("end_time")
-    )
+    dim_time_start = df_status.select(col("time.fromDate").alias("start_time"))
+    dim_time_end = df_status.select(col("time.toDate").alias("end_time"))
 
-    dim_time = dim_time.dropna(subset=['start_time', 'end_time'])
+    dim_time_start = dim_time_start.dropna()
+    dim_time_end = dim_time_end.dropna()
 
-    dim_time.show()
+    dim_time_start = dim_time_start \
+    .withColumn("year", year(col("start_time"))) \
+    .withColumn("month", month(col("start_time"))) \
+    .withColumn("day", day(col("start_time"))) \
+    .withColumn("hour", hour(col("start_time"))) \
+    .withColumn("date", to_date(col("start_time"))) \
+    .drop("start_time")
 
-    fact_tube_status = df_final.select("lineId", "start_time", "end_time", "status", "reason")
+    dim_time_end = dim_time_end \
+    .withColumn("year", year(col("end_time"))) \
+    .withColumn("month", month(col("end_time"))) \
+    .withColumn("day", day(col("end_time"))) \
+    .withColumn("hour", hour(col("end_time"))) \
+    .withColumn("date", to_date(col("end_time"))) \
+    .drop("end_time")
 
-    fact_tube_status = fact_tube_status.withColumn("start_time", col("start_time").cast("timestamp"))
-    fact_tube_status = fact_tube_status.withColumn("end_time", col("end_time").cast("timestamp"))
+    dim_time_start = dim_time_start.drop_duplicates()
+    dim_time_end = dim_time_end.drop_duplicates()
+
+    fact_tube_status = df_final.select("lineId", "status", "reason")
+
 
     logger_transform.info("Realizando cast")
 
     logger_transform.info("Finalizando tranformacao do tubestatus")
 
-    return dim_line, fact_tube_status
+    return dim_line, dim_time_start, dim_time_end, fact_tube_status
 
 def load_trusted_data(path) -> None:
     logger_transform.info(f"Iniciando carga de dados trusted em {path}")
@@ -222,17 +236,19 @@ def load_trusted_data(path) -> None:
 def run_transform() -> None:
     logger_transform.info("Processo de transformacao iniciando!")
 
-    # bikepoint_df = read_data("data/raw/bikepoint")
-    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    bikepoint_df = read_data("data/raw/bikepoint")
+    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
     tubestatus_df = read_data("data/raw/tubestatus")
     df_transformed_tube_status = transform_status(tubestatus_df)
 
-    # arrivals_df = read_data("data/raw/arrivals")
-    # df_transformed_arrivals = transform_arrivals(arrivals_df)
+    arrivals_df = read_data("data/raw/arrivals")
+    df_transformed_arrivals = transform_arrivals(arrivals_df)
 
     logger_transform.info("Processo de transformacao finalizado!")
 
     # return df_transformed_arrivals, df_transformed_bikepoint, df_transformed_tube_status
+
+    # TODO: CARREGAR DADOS ONDE? TRY/EXCEPT E COMENTÁRIOS
 
 run_transform()
