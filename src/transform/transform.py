@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import json
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, explode, first, lit
+from pyspark.sql.functions import col, explode, first, lit, month, year, day, hour, date_trunc
 
 
 logging.basicConfig(
@@ -40,11 +40,11 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     df_bike = df_exploded.select(
         "id", "commonName", 
         col("prop.key"),
-        col("Prop.value")
+        col("prop.value"),
+        col("prop.modified")
         )
 
-
-    df_final = df_bike.groupBy("id", "commonName") \
+    df_final = df_bike.groupBy("id", "commonName", "modified") \
             .pivot("key", ["TerminalName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes"]) \
             .agg(first("value"))
 
@@ -52,7 +52,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
 
     logger_transform.info("Removendo colunas nulas")
 
-    not_null_columns = ['id', 'commonName', 'TerminalName', 'NbBikes', 'NbEmptyDocks', 'NbDocks', 'NbStandardBikes', 'NbEBikes', 'mode']
+    not_null_columns = ['id', 'commonName', 'TerminalName', 'NbBikes', 'NbEmptyDocks', 'NbDocks', 'NbStandardBikes', 'NbEBikes', 'mode', 'modified']
 
     df_final = df_final.dropna(subset=not_null_columns)
 
@@ -66,7 +66,8 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         .withColumn("NbEmptyDocks", col("NbEmptyDocks").cast("int")) \
         .withColumn("NbDocks", col("NbDocks").cast("int")) \
         .withColumn("NbStandardBikes", col("NbStandardBikes").cast("int")) \
-        .withColumn("NbEBikes", col("NbEBikes").cast("int")
+        .withColumn("NbEBikes", col("NbEBikes").cast("int")) \
+        .withColumn("modified", col("modified").cast("timestamp")
     )
 
     logger_transform.info("Realizando logica de negocios")
@@ -87,11 +88,28 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     dim_station = df_final.select("id", "commonName", "mode")
 
     logger_transform.info("fact_bike_status criada com sucesso!")
+
     
-    fact_bike_status = df_final.select("id", "commonName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
+    fact_bike_status = df_final.select("id", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
 
     logger_transform.info("Finalizando tranformacao do bikepoint")
-    return dim_station, fact_bike_status
+
+    dim_time = df_final.select("modified")
+
+    dim_time = dim_time.withColumn("modified", date_trunc("hour", col("modified")))
+
+    dim_time = dim_time.drop_duplicates()
+
+    dim_time = dim_time \
+    .withColumn("year", year(col("modified"))) \
+    .withColumn("month", month(col("modified"))) \
+    .withColumn("day", day(col("modified"))) \
+    .withColumn("hour", hour(col("modified")))
+
+
+    dim_time = dim_time.withColumnRenamed("modified", "date")
+    
+    return dim_station,  dim_time, fact_bike_status
 
 def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
     logger_transform.info("Iniciando tranformacao do arrivals")
@@ -193,16 +211,14 @@ def run_transform() -> None:
     bikepoint_df = read_data("data/raw/bikepoint")
     df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
-    tubestatus_df = read_data("data/raw/tubestatus")
-    df_transformed_tube_status = transform_status(tubestatus_df)
+    # tubestatus_df = read_data("data/raw/tubestatus")
+    # df_transformed_tube_status = transform_status(tubestatus_df)
 
-    arrivals_df = read_data("data/raw/arrivals")
-    df_transformed_arrivals = transform_arrivals(arrivals_df)
+    # arrivals_df = read_data("data/raw/arrivals")
+    # df_transformed_arrivals = transform_arrivals(arrivals_df)
 
     logger_transform.info("Processo de transformacao finalizado!")
 
-    return df_transformed_arrivals, df_transformed_bikepoint, df_transformed_tube_status
-
-    #TODO: DEFINIR O QUE FAZER EM RELACAO AOS IDS da dim_time
+    # return df_transformed_arrivals, df_transformed_bikepoint, df_transformed_tube_status
 
 run_transform()
