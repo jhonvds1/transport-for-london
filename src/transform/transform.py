@@ -108,13 +108,13 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame]:
 
 
     dim_time = dim_time.withColumnRenamed("modified", "date")
-    
+
     return dim_station,  dim_time, fact_bike_status
 
 def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
     logger_transform.info("Iniciando tranformacao do arrivals")
     
-    df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
+    df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "expectedArrival")
 
     logger_transform.info("Colunas necessarias selecionadas")
 
@@ -125,6 +125,8 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
     dim_line = df.select("lineId", "lineName", "modeName")
 
     dim_station = df.select("naptanId", "stationName", "modeName")
+
+    dim_time = df.select("expectedArrival")
 
     logger_transform.info("Tabelas criadas")
 
@@ -139,9 +141,9 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
     dim_vehicle = dim_vehicle.drop_duplicates(subset=['vehicleId'])
     dim_line = dim_line.drop_duplicates(subset=['lineId'])
     dim_station = dim_station.drop_duplicates(subset=['naptanId'])
+    dim_time = dim_time.drop_duplicates()
 
     logger_transform.info("Removendo valores duplicados")
-
 
     fact_arrival = fact_arrival.withColumn("id", col("id").cast("bigint"))
 
@@ -149,7 +151,17 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
 
     logger_transform.info("Finalizando tranformacao do arrivals")
 
-    return dim_vehicle, dim_line, dim_station, fact_arrival
+    dim_time = dim_time \
+    .withColumn("year", year(col("expectedArrival"))) \
+    .withColumn("month", month(col("expectedArrival"))) \
+    .withColumn("day", day(col("expectedArrival"))) \
+    .withColumn("hour", hour(col("expectedArrival"))) \
+
+    dim_time.show()
+
+    dim_time.printSchema()
+
+    return dim_vehicle, dim_line, dim_station, dim_time, fact_arrival
 
 def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     logger_transform.info("Iniciando tranformacao do tubestatus")
@@ -208,14 +220,14 @@ def load_trusted_data(path) -> None:
 def run_transform() -> None:
     logger_transform.info("Processo de transformacao iniciando!")
 
-    bikepoint_df = read_data("data/raw/bikepoint")
-    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    # bikepoint_df = read_data("data/raw/bikepoint")
+    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
     # tubestatus_df = read_data("data/raw/tubestatus")
     # df_transformed_tube_status = transform_status(tubestatus_df)
 
-    # arrivals_df = read_data("data/raw/arrivals")
-    # df_transformed_arrivals = transform_arrivals(arrivals_df)
+    arrivals_df = read_data("data/raw/arrivals")
+    df_transformed_arrivals = transform_arrivals(arrivals_df)
 
     logger_transform.info("Processo de transformacao finalizado!")
 
