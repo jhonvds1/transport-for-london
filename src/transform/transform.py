@@ -176,15 +176,13 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     )
 
     df_final = df_status.select(
-        "name", "modeName", "lineId", "status", "reason",
-        col("time.fromDate").alias("start_time"),
-        col("time.toDate").alias("end_time")
+        "name", "modeName", "lineId", "status", "reason"
     )
 
     logger_transform.info("Selecionando colunas necessárias")
 
 
-    df_final = df_final.dropna(subset=["lineId", "start_time", "end_time"])
+    df_final = df_final.dropna(subset=["lineId"])
 
     logger_transform.info("Removendo valores nulos")
 
@@ -195,6 +193,15 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     )
 
     dim_line = dim_line.drop_duplicates(["lineId"])
+
+    dim_time = df_status.select(
+        col("time.fromDate").alias("start_time"),
+        col("time.toDate").alias("end_time")
+    )
+
+    dim_time = dim_time.dropna(subset=['start_time', 'end_time'])
+
+    dim_time.show()
 
     fact_tube_status = df_final.select("lineId", "start_time", "end_time", "status", "reason")
 
@@ -215,11 +222,11 @@ def load_trusted_data(path) -> None:
 def run_transform() -> None:
     logger_transform.info("Processo de transformacao iniciando!")
 
-    bikepoint_df = read_data("data/raw/bikepoint")
-    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+    # bikepoint_df = read_data("data/raw/bikepoint")
+    # df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
 
-    # tubestatus_df = read_data("data/raw/tubestatus")
-    # df_transformed_tube_status = transform_status(tubestatus_df)
+    tubestatus_df = read_data("data/raw/tubestatus")
+    df_transformed_tube_status = transform_status(tubestatus_df)
 
     # arrivals_df = read_data("data/raw/arrivals")
     # df_transformed_arrivals = transform_arrivals(arrivals_df)
