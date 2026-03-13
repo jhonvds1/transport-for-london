@@ -93,7 +93,7 @@ def get_yellow_messages() -> None:
             logger_extract.error(f"Erro dados de chegada: {e} em {id}")
 
 
-def run_extract():
+def run_extract() -> None:
     logger_extract.info("Iniciando extracao de dados")
     get_bikepoints()
     get_line_status()

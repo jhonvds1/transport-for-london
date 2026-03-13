@@ -98,6 +98,8 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
     
     df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "timestamp")
 
+    logger_transform.info("Colunas necessarias selecionadas")
+
     dim_vehicle = df.select("vehicleId")
 
     fact_arrival = df.select("id", "naptanId", "vehicleId", "timeToStation", "lineId")
@@ -106,17 +108,26 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
 
     dim_station = df.select("naptanId", "stationName", "modeName")
 
+    logger_transform.info("Tabelas criadas")
+
     dim_vehicle = dim_vehicle.dropna()
     fact_arrival = fact_arrival.dropna()
     dim_line = dim_line.dropna()
     dim_station = dim_station.dropna()
+
+    logger_transform.info("Removendo valores nulos")
 
     fact_arrival = fact_arrival.drop_duplicates(subset=['id'])
     dim_vehicle = dim_vehicle.drop_duplicates(subset=['vehicleId'])
     dim_line = dim_line.drop_duplicates(subset=['lineId'])
     dim_station = dim_station.drop_duplicates(subset=['naptanId'])
 
+    logger_transform.info("Removendo valores duplicados")
+
+
     fact_arrival = fact_arrival.withColumn("id", col("id").cast("bigint"))
+
+    logger_transform.info("Realizando cast")
 
     logger_transform.info("Finalizando tranformacao do arrivals")
 
@@ -130,6 +141,7 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         explode("lineStatuses").alias("prop")
     )
 
+    
     df_status = df_exploded.select(
         "name", "modeName",
         col("prop.lineId").alias("lineId"),
@@ -144,7 +156,12 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         col("time.toDate").alias("end_time")
     )
 
+    logger_transform.info("Selecionando colunas necessárias")
+
+
     df_final = df_final.dropna(subset=["lineId", "start_time", "end_time"])
+
+    logger_transform.info("Removendo valores nulos")
 
     dim_line = df_final.select(
         col("lineId"),
@@ -159,11 +176,18 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame]:
     fact_tube_status = fact_tube_status.withColumn("start_time", col("start_time").cast("timestamp"))
     fact_tube_status = fact_tube_status.withColumn("end_time", col("end_time").cast("timestamp"))
 
+    logger_transform.info("Realizando cast")
+
     logger_transform.info("Finalizando tranformacao do tubestatus")
 
     return dim_line, fact_tube_status
 
-def run_transform():
+def load_trusted_data(path) -> None:
+    logger_transform.info(f"Iniciando carga de dados trusted em {path}")
+
+    logger_transform.info("Finalizando carga de dados com sucesso")
+
+def run_transform() -> None:
     logger_transform.info("Processo de transformacao iniciando!")
 
     bikepoint_df = read_data("data/raw/bikepoint")
@@ -176,6 +200,8 @@ def run_transform():
     df_transformed_arrivals = transform_arrivals(arrivals_df)
 
     logger_transform.info("Processo de transformacao finalizado!")
+
+    return df_transformed_arrivals, df_transformed_bikepoint, df_transformed_tube_status
 
     #TODO: DEFINIR O QUE FAZER EM RELACAO AOS IDS da dim_time
 
