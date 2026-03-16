@@ -7,9 +7,9 @@ import logging
 
 
 def run_pipeline():
-    run_extract()
-    run_transform()
-    run_load()
+    # run_extract()
+    data = run_transform()
+    run_load(data)
 
 
 if __name__ == "__main__":

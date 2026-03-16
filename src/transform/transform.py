@@ -1,11 +1,13 @@
 import logging
-# import pandas as pd
 from pathlib import Path
-import json
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, explode, first, lit, month, year, day, hour, date_trunc, to_date
+from pyspark.sql.functions import (
+    col, explode, first, lit,
+    month, year, day, hour,
+    date_trunc, to_date
+)
 
-
+# Configuração padrão de logs
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -13,242 +15,363 @@ logging.basicConfig(
 
 logger_transform = logging.getLogger("TRANSFORM")
 
-spark = SparkSession.builder.appName("tfl_transform").getOrCreate()
-
-
+spark = SparkSession.builder.appName("spark").getOrCreate()
 
 def read_data(folder: str) -> DataFrame:
-    
-    for file in Path(folder).rglob("*.json"):
-        logger_transform.info(f"Recebendo dados do arquivo: {file}")
+    """
+    Lê todos os arquivos JSON recursivamente de uma pasta.
+    Utiliza leitura distribuída do Spark.
+    """
 
-    df = spark.read.option("recursiveFileLookup", "true").option("multiLine", "true").json(folder)
+    try:
+        logger_transform.info(f"Iniciando leitura de dados da pasta: {folder}")
 
-    logger_transform.info(f"Dados coletados de {folder}: {df.count()}")
-    
-    return df
+        files = list(Path(folder).rglob("*.json"))
 
-def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
-    logger_transform.info("Iniciando tranformacao do bikepoint")
-    
-    logger_transform.info("Explodindo dados do bikepoint")
+        if not files:
+            logger_transform.warning(f"Nenhum arquivo JSON encontrado em {folder}")
 
-    df_exploded = df.select("id", "commonName", explode("additionalProperties").alias("prop"))
+        for file in files:
+            logger_transform.info(f"Arquivo detectado: {file}")
 
-    logger_transform.info("Selecionando dados do bikepoint")
-
-    df_bike = df_exploded.select(
-        "id", "commonName", 
-        col("prop.key"),
-        col("prop.value"),
-        col("prop.modified")
+        df = (
+            spark.read
+            .option("recursiveFileLookup", "true")
+            .option("multiLine", "true")
+            .json(folder)
         )
 
-    df_final = df_bike.groupBy("id", "commonName", "modified") \
-            .pivot("key", ["TerminalName", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes"]) \
+        logger_transform.info(f"Leitura concluída com sucesso: {folder}")
+
+        return df
+
+    except Exception as e:
+        logger_transform.error(f"Erro ao ler dados de {folder}: {e}")
+        raise
+
+def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
+    """
+    Realiza transformação dos dados de BikePoint.
+    Cria as dimensões e fato relacionadas ao status das bicicletas.
+    """
+
+    try:
+
+        logger_transform.info("Iniciando transformação: BIKEPOINT")
+
+        # Explode das propriedades para transformar estrutura aninhada em linhas
+        logger_transform.info("Explodindo additionalProperties")
+
+        df_exploded = df.select(
+            "id",
+            "commonName",
+            explode("additionalProperties").alias("prop")
+        )
+
+        # Normaliza propriedades
+        df_bike = df_exploded.select(
+            "id",
+            "commonName",
+            col("prop.key"),
+            col("prop.value"),
+            col("prop.modified")
+        )
+
+        logger_transform.info("Pivotando propriedades do BikePoint")
+
+        df_final = (
+            df_bike
+            .groupBy("id", "commonName", "modified")
+            .pivot(
+                "key",
+                [
+                    "TerminalName",
+                    "NbBikes",
+                    "NbEmptyDocks",
+                    "NbDocks",
+                    "NbStandardBikes",
+                    "NbEBikes"
+                ]
+            )
             .agg(first("value"))
+        )
 
-    df_final = df_final.withColumn("mode", lit("bike"))
+        df_final = df_final.withColumn("mode", lit("bike"))
 
-    logger_transform.info("Removendo colunas nulas")
+        # Remove registros incompletos
+        logger_transform.info("Removendo registros com colunas obrigatórias nulas")
 
-    not_null_columns = ['id', 'commonName', 'TerminalName', 'NbBikes', 'NbEmptyDocks', 'NbDocks', 'NbStandardBikes', 'NbEBikes', 'mode', 'modified']
+        required_columns = [
+            'id', 'commonName', 'TerminalName',
+            'NbBikes', 'NbEmptyDocks', 'NbDocks',
+            'NbStandardBikes', 'NbEBikes', 'mode', 'modified'
+        ]
 
-    df_final = df_final.dropna(subset=not_null_columns)
+        df_final = df_final.dropna(subset=required_columns)
 
-    logger_transform.info("Removendo id's duplicados")
+        # Remove duplicatas
+        logger_transform.info("Removendo duplicatas por id")
 
-    df_final = df_final.drop_duplicates(subset=["id"])
+        df_final = df_final.drop_duplicates(subset=["id"])
 
-    logger_transform.info("Realizando Cast de tipos")
+        # Cast de tipos
+        logger_transform.info("Realizando cast de tipos numéricos")
 
-    df_final = df_final.withColumn("NbBikes", col("NbBikes").cast("int")) \
-        .withColumn("NbEmptyDocks", col("NbEmptyDocks").cast("int")) \
-        .withColumn("NbDocks", col("NbDocks").cast("int")) \
-        .withColumn("NbStandardBikes", col("NbStandardBikes").cast("int")) \
-        .withColumn("NbEBikes", col("NbEBikes").cast("int"))
+        df_final = (
+            df_final
+            .withColumn("NbBikes", col("NbBikes").cast("int"))
+            .withColumn("NbEmptyDocks", col("NbEmptyDocks").cast("int"))
+            .withColumn("NbDocks", col("NbDocks").cast("int"))
+            .withColumn("NbStandardBikes", col("NbStandardBikes").cast("int"))
+            .withColumn("NbEBikes", col("NbEBikes").cast("int"))
+        )
 
-    logger_transform.info("Realizando logica de negocios")
+        # Regras de negócio
+        logger_transform.info("Aplicando validações de regra de negócio")
 
-    df_final = df_final.filter(
-        (col("NbEmptyDocks") >= 0) &
-        (col("NbDocks") >= 0) &
-        (col("NbStandardBikes") >= 0) &
-        (col("NbEBikes") >= 0) 
-    )
+        df_final = df_final.filter(
+            (col("NbEmptyDocks") >= 0) &
+            (col("NbDocks") >= 0) &
+            (col("NbStandardBikes") >= 0) &
+            (col("NbEBikes") >= 0)
+        )
 
-    df_final = df_final.filter(
-        col("NbBikes") + col("NbEmptyDocks") == col("NbDocks")
-    )
+        df_final = df_final.filter(
+            col("NbBikes") + col("NbEmptyDocks") == col("NbDocks")
+        )
 
-    logger_transform.info("Dim_station criada com sucesso!")
+        # Dimensão estação
+        dim_station = df_final.select("id", "commonName", "mode")
 
-    dim_station = df_final.select("id", "commonName", "mode")
+        logger_transform.info("Dimensão dim_station criada")
 
-    logger_transform.info("fact_bike_status criada com sucesso!")
+        # Fato status das bicicletas
+        fact_bike_status = df_final.select(
+            "id",
+            "NbBikes",
+            "NbEmptyDocks",
+            "NbDocks",
+            "NbStandardBikes",
+            "NbEBikes"
+        )
 
-    
-    fact_bike_status = df_final.select("id", "NbBikes", "NbEmptyDocks", "NbDocks", "NbStandardBikes", "NbEBikes")
+        logger_transform.info("Fato fact_bike_status criado")
 
-    logger_transform.info("Finalizando tranformacao do bikepoint")
+        # Dimensão tempo
+        dim_time = df_final.select("modified")
 
-    dim_time = df_final.select("modified")
+        dim_time = dim_time.withColumn(
+            "modified",
+            date_trunc("hour", col("modified"))
+        )
 
-    dim_time = dim_time.withColumn("modified", date_trunc("hour", col("modified")))
+        dim_time = dim_time.drop_duplicates()
 
-    dim_time = dim_time.drop_duplicates()
+        dim_time = (
+            dim_time
+            .withColumn("year", year(col("modified")))
+            .withColumn("month", month(col("modified")))
+            .withColumn("day", day(col("modified")))
+            .withColumn("hour", hour(col("modified")))
+            .withColumn("date", to_date(col("modified")))
+            .drop("modified")
+        )
 
-    dim_time = dim_time \
-    .withColumn("year", year(col("modified"))) \
-    .withColumn("month", month(col("modified"))) \
-    .withColumn("day", day(col("modified"))) \
-    .withColumn("hour", hour(col("modified"))) \
-    .withColumn("date", to_date(col("modified"))) \
-    .drop("modified")
+        logger_transform.info("Dimensão dim_time criada")
 
-    return dim_station,  dim_time, fact_bike_status
+        logger_transform.info("Transformação BIKEPOINT finalizada com sucesso")
 
-def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame, DataFrame]:
-    logger_transform.info("Iniciando tranformacao do arrivals")
-    
-    df = df.select("id", "naptanId", "timeToStation", "vehicleId", "lineId", "lineName", "modeName", "stationName", "platformName", "direction", "expectedArrival")
+        return dim_station, dim_time, fact_bike_status
 
-    logger_transform.info("Colunas necessarias selecionadas")
+    except Exception as e:
+        logger_transform.error(f"Erro na transformação BIKEPOINT: {e}")
+        raise
 
-    dim_vehicle = df.select("vehicleId")
+def transform_arrivals(df: DataFrame)-> tuple[DataFrame, DataFrame, DataFrame, DataFrame, DataFrame]:
 
-    fact_arrival = df.select("id", "naptanId", "vehicleId", "timeToStation", "lineId")
+    try:
 
-    dim_line = df.select("lineId", "lineName", "modeName")
+        logger_transform.info("Iniciando transformação: ARRIVALS")
 
-    dim_station = df.select("naptanId", "stationName", "modeName")
+        df = df.select(
+            "id",
+            "naptanId",
+            "timeToStation",
+            "vehicleId",
+            "lineId",
+            "lineName",
+            "modeName",
+            "stationName",
+            "platformName",
+            "direction",
+            "expectedArrival"
+        )
 
-    dim_time = df.select("expectedArrival")
+        logger_transform.info("Colunas necessárias selecionadas")
 
-    logger_transform.info("Tabelas criadas")
+        dim_vehicle = df.select("vehicleId")
+        fact_arrival = df.select(
+            "id",
+            "naptanId",
+            "vehicleId",
+            "timeToStation",
+            "lineId"
+        )
 
-    dim_vehicle = dim_vehicle.dropna()
-    fact_arrival = fact_arrival.dropna()
-    dim_line = dim_line.dropna()
-    dim_station = dim_station.dropna()
+        dim_line = df.select("lineId", "lineName", "modeName")
+        dim_station = df.select("naptanId", "stationName", "modeName")
+        dim_time = df.select("expectedArrival")
 
-    logger_transform.info("Removendo valores nulos")
+        logger_transform.info("Estruturas de dimensão e fato criadas")
 
-    fact_arrival = fact_arrival.drop_duplicates(subset=['id'])
-    dim_vehicle = dim_vehicle.drop_duplicates(subset=['vehicleId'])
-    dim_line = dim_line.drop_duplicates(subset=['lineId'])
-    dim_station = dim_station.drop_duplicates(subset=['naptanId'])
-    dim_time = dim_time.drop_duplicates()
+        # limpeza
+        dim_vehicle = dim_vehicle.dropna().drop_duplicates(["vehicleId"])
+        dim_line = dim_line.dropna().drop_duplicates(["lineId"])
+        dim_station = dim_station.dropna().drop_duplicates(["naptanId"])
+        dim_time = dim_time.drop_duplicates()
 
-    logger_transform.info("Removendo valores duplicados")
+        fact_arrival = fact_arrival.dropna().drop_duplicates(["id"])
 
-    fact_arrival = fact_arrival.withColumn("id", col("id").cast("bigint"))
+        logger_transform.info("Dados limpos e deduplicados")
 
-    logger_transform.info("Realizando cast")
+        # cast
+        fact_arrival = fact_arrival.withColumn(
+            "id",
+            col("id").cast("bigint")
+        )
 
-    logger_transform.info("Finalizando tranformacao do arrivals")
+        logger_transform.info("Cast de tipos aplicado")
 
-    dim_time = dim_time \
-    .withColumn("year", year(col("expectedArrival"))) \
-    .withColumn("month", month(col("expectedArrival"))) \
-    .withColumn("day", day(col("expectedArrival"))) \
-    .withColumn("hour", hour(col("expectedArrival"))) \
-    .withColumn("date", to_date(col("expectedArrival"))) \
-    .drop("expectedArrival")
+        dim_time = (
+            dim_time
+            .withColumn("year", year(col("expectedArrival")))
+            .withColumn("month", month(col("expectedArrival")))
+            .withColumn("day", day(col("expectedArrival")))
+            .withColumn("hour", hour(col("expectedArrival")))
+            .withColumn("date", to_date(col("expectedArrival")))
+            .drop("expectedArrival")
+        )
 
-    return dim_vehicle, dim_line, dim_station, dim_time, fact_arrival
+        logger_transform.info("Dimensão tempo criada")
+
+        logger_transform.info("Transformação ARRIVALS finalizada")
+
+        return dim_vehicle, dim_line, dim_station, dim_time, fact_arrival
+
+    except Exception as e:
+        logger_transform.error(f"Erro na transformação ARRIVALS: {e}")
+        raise
 
 def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
-    logger_transform.info("Iniciando tranformacao do tubestatus")
-    
-    df_exploded = df.select(
-        "name", "modeName",
-        explode("lineStatuses").alias("prop")
-    )
 
-    
-    df_status = df_exploded.select(
-        "name", "modeName",
-        col("prop.lineId").alias("lineId"),
-        col("prop.statusSeverityDescription").alias("status"),
-        col("prop.reason").alias("reason"),
-        explode("prop.validityPeriods").alias("time")
-    )
+    try:
 
-    df_final = df_status.select(
-        "name", "modeName", "lineId", "status", "reason"
-    )
+        logger_transform.info("Iniciando transformação: TUBESTATUS")
 
-    logger_transform.info("Selecionando colunas necessárias")
+        df_exploded = df.select(
+            "name",
+            "modeName",
+            explode("lineStatuses").alias("prop")
+        )
 
+        df_status = df_exploded.select(
+            "name",
+            "modeName",
+            col("prop.lineId").alias("lineId"),
+            col("prop.statusSeverityDescription").alias("status"),
+            col("prop.reason").alias("reason"),
+            explode("prop.validityPeriods").alias("time")
+        )
 
-    df_final = df_final.dropna(subset=["lineId"])
+        df_final = df_status.select(
+            "name",
+            "modeName",
+            "lineId",
+            "status",
+            "reason"
+        )
 
-    logger_transform.info("Removendo valores nulos")
+        logger_transform.info("Selecionadas colunas necessárias")
 
-    dim_line = df_final.select(
-        col("lineId"),
-        col("name"),
-        col("modeName")
-    )
+        df_final = df_final.dropna(subset=["lineId"])
 
-    dim_line = dim_line.drop_duplicates(["lineId"])
+        dim_line = df_final.select(
+            "lineId",
+            "name",
+            "modeName"
+        ).drop_duplicates(["lineId"])
 
-    dim_time_start = df_status.select(col("time.fromDate").alias("start_time"))
-    dim_time_end = df_status.select(col("time.toDate").alias("end_time"))
+        logger_transform.info("Dimensão linha criada")
 
-    dim_time_start = dim_time_start.dropna()
-    dim_time_end = dim_time_end.dropna()
+        dim_time_start = df_status.select(
+            col("time.fromDate").alias("start_time")
+        ).dropna()
 
-    dim_time_start = dim_time_start \
-    .withColumn("year", year(col("start_time"))) \
-    .withColumn("month", month(col("start_time"))) \
-    .withColumn("day", day(col("start_time"))) \
-    .withColumn("hour", hour(col("start_time"))) \
-    .withColumn("date", to_date(col("start_time"))) \
-    .drop("start_time")
+        dim_time_end = df_status.select(
+            col("time.toDate").alias("end_time")
+        ).dropna()
 
-    dim_time_end = dim_time_end \
-    .withColumn("year", year(col("end_time"))) \
-    .withColumn("month", month(col("end_time"))) \
-    .withColumn("day", day(col("end_time"))) \
-    .withColumn("hour", hour(col("end_time"))) \
-    .withColumn("date", to_date(col("end_time"))) \
-    .drop("end_time")
+        dim_time_start = (
+            dim_time_start
+            .withColumn("year", year(col("start_time")))
+            .withColumn("month", month(col("start_time")))
+            .withColumn("day", day(col("start_time")))
+            .withColumn("hour", hour(col("start_time")))
+            .withColumn("date", to_date(col("start_time")))
+            .drop("start_time")
+            .drop_duplicates()
+        )
 
-    dim_time_start = dim_time_start.drop_duplicates()
-    dim_time_end = dim_time_end.drop_duplicates()
+        dim_time_end = (
+            dim_time_end
+            .withColumn("year", year(col("end_time")))
+            .withColumn("month", month(col("end_time")))
+            .withColumn("day", day(col("end_time")))
+            .withColumn("hour", hour(col("end_time")))
+            .withColumn("date", to_date(col("end_time")))
+            .drop("end_time")
+            .drop_duplicates()
+        )
 
-    fact_tube_status = df_final.select("lineId", "status", "reason")
+        fact_tube_status = df_final.select(
+            "lineId",
+            "status",
+            "reason"
+        )
 
+        logger_transform.info("Fato fact_tube_status criado")
 
-    logger_transform.info("Realizando cast")
+        logger_transform.info("Transformação TUBESTATUS finalizada")
 
-    logger_transform.info("Finalizando tranformacao do tubestatus")
+        return dim_line, dim_time_start, dim_time_end, fact_tube_status
 
-    return dim_line, dim_time_start, dim_time_end, fact_tube_status
+    except Exception as e:
+        logger_transform.error(f"Erro na transformação TUBESTATUS: {e}")
+        raise
 
-def load_trusted_data(path) -> None:
-    logger_transform.info(f"Iniciando carga de dados trusted em {path}")
+def run_transform():
 
-    logger_transform.info("Finalizando carga de dados com sucesso")
+    try:
 
-def run_transform() -> None:
-    logger_transform.info("Processo de transformacao iniciando!")
+        logger_transform.info("Pipeline de transformação iniciado")
 
-    bikepoint_df = read_data("data/raw/bikepoint")
-    df_transformed_bikepoint = transform_bikepoint(bikepoint_df)
+        bikepoint_df = read_data("data/raw/bikepoint")
+        bikepoint_tables = transform_bikepoint(bikepoint_df)
 
-    tubestatus_df = read_data("data/raw/tubestatus")
-    df_transformed_tube_status = transform_status(tubestatus_df)
+        tubestatus_df = read_data("data/raw/tubestatus")
+        tubestatus_tables = transform_status(tubestatus_df)
 
-    arrivals_df = read_data("data/raw/arrivals")
-    df_transformed_arrivals = transform_arrivals(arrivals_df)
+        arrivals_df = read_data("data/raw/arrivals")
+        arrivals_tables = transform_arrivals(arrivals_df)
 
-    logger_transform.info("Processo de transformacao finalizado!")
+        logger_transform.info("Pipeline de transformação finalizado com sucesso")
 
-    # return df_transformed_arrivals, df_transformed_bikepoint, df_transformed_tube_status
+        return {
+            "arrivals": arrivals_tables,
+            "bikepoint": bikepoint_tables,
+            "tubestatus": tubestatus_tables
+        }
 
-    # TODO: CARREGAR DADOS ONDE? TRY/EXCEPT E COMENTÁRIOS
-
-run_transform()
+    except Exception as e:
+        logger_transform.error(f"Falha no pipeline de transformação: {e}")
+        raise
