@@ -4,7 +4,7 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
     col, explode, first, lit,
     month, year, day, hour,
-    date_trunc, to_date, date_format
+    date_trunc, to_date, date_format,
 )
 
 # Configuração padrão de logs
@@ -112,7 +112,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
         # Remove duplicatas
         logger_transform.info("Removendo duplicatas por id")
 
-        df_final = df_final.drop_duplicates(subset=["id"])
+        df_final = df_final.drop_duplicates(subset=["id", "modified"])
 
         # Cast de tipos
         logger_transform.info("Realizando cast de tipos numéricos")
@@ -143,19 +143,12 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
         # Dimensão estação
         dim_station = df_final.select("id", "commonName", "mode")
 
+        dim_station = dim_station.withColumnRenamed("id", "station_id") \
+        .withColumnRenamed("commonName", "station_name")
+
+        dim_station = dim_station.dropDuplicates(["station_id"])
+
         logger_transform.info("Dimensão dim_station criada")
-
-        # Fato status das bicicletas
-        fact_bike_status = df_final.select(
-            "id",
-            "NbBikes",
-            "NbEmptyDocks",
-            "NbDocks",
-            "NbStandardBikes",
-            "NbEBikes"
-        )
-
-        logger_transform.info("Fato fact_bike_status criado")
 
         # Dimensão tempo
         dim_time = df_final.select("modified")
@@ -170,7 +163,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
         dim_time = (
             dim_time
             .withColumn("date", to_date(col("modified")))
-            .withColumn("time_id", date_format(col("date"), "yyyyMMdd").cast("int"))
+            .withColumn("time_id", date_format(col("modified"), "yyyyMMddHH").cast("int"))
             .withColumn("year", year(col("date")))
             .withColumn("month", month(col("date")))
             .withColumn("day", day(col("date")))
@@ -178,7 +171,35 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
             .drop("modified")
         )
 
+        fact_bike_status = fact_bike_status.orderBy("time_id")
+
         logger_transform.info("Dimensão dim_time criada")
+
+        # Fato status das bicicletas
+        fact_bike_status = df_final.select(
+            "id",
+            "NbBikes",
+            "NbEmptyDocks",
+            "NbDocks",
+            "NbStandardBikes",
+            "NbEBikes",
+            "modified"
+        )
+
+        fact_bike_status = fact_bike_status\
+        .withColumnRenamed("NbBikes", "bikes") \
+        .withColumnRenamed("NbEmptyDocks", "empty_docks") \
+        .withColumnRenamed("NbDocks", "total_docks") \
+        .withColumnRenamed("NbEBikes", "ebikes") \
+        .withColumnRenamed("NbStandardBikes", "standard_bikes") \
+        .withColumnRenamed("id", "station_id") \
+        .withColumn("modified", date_trunc("hour", col("modified"))) \
+        .withColumn("time_id", date_format(col("modified"), "yyyyMMddHH").cast("int"))\
+        .drop("modified")
+
+        fact_bike_status = fact_bike_status.dropDuplicates(["station_id", "time_id"])
+
+        logger_transform.info("Fato fact_bike_status criado")
 
         logger_transform.info("Transformação BIKEPOINT finalizada com sucesso")
 
