@@ -141,7 +141,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
         )
 
         # Dimensão estação
-        dim_station = df_final.select("id", "commonName", "mode")
+        dim_station = df_final.select("id", "commonName")
 
         dim_station = dim_station.withColumnRenamed("id", "station_id") \
         .withColumnRenamed("commonName", "station_name")
@@ -171,8 +171,6 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
             .drop("modified")
         )
 
-        fact_bike_status = fact_bike_status.orderBy("time_id")
-
         logger_transform.info("Dimensão dim_time criada")
 
         # Fato status das bicicletas
@@ -198,6 +196,8 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
         .drop("modified")
 
         fact_bike_status = fact_bike_status.dropDuplicates(["station_id", "time_id"])
+
+        fact_bike_status = fact_bike_status.orderBy("time_id")
 
         logger_transform.info("Fato fact_bike_status criado")
 
@@ -232,40 +232,30 @@ def transform_arrivals(df: DataFrame)-> tuple[DataFrame, DataFrame, DataFrame, D
         logger_transform.info("Colunas necessárias selecionadas")
 
         dim_vehicle = df.select("vehicleId")
-        fact_arrival = df.select(
-            "id",
-            "naptanId",
-            "vehicleId",
-            "timeToStation",
-            "lineId"
-        )
+
+        dim_vehicle = dim_vehicle.withColumnRenamed("vehicleId", "vehicle_id")
 
         dim_line = df.select("lineId", "lineName", "modeName")
-        dim_station = df.select("naptanId", "stationName", "modeName")
+
+        dim_line = dim_line \
+        .withColumnRenamed("lineId", "line_id") \
+        .withColumnRenamed("lineName", "line_name") \
+        .withColumnRenamed("modeName", "mode") 
+
+
+        dim_station = df.select("naptanId", "stationName")
+
+        dim_station = dim_station \
+        .withColumnRenamed("naptanId", "station_id") \
+        .withColumnRenamed("stationName", "station_name")
+
+
         dim_time = df.select("expectedArrival")
-
-        logger_transform.info("Estruturas de dimensão e fato criadas")
-
-        # limpeza
-        dim_vehicle = dim_vehicle.dropna().drop_duplicates(["vehicleId"])
-        dim_line = dim_line.dropna().drop_duplicates(["lineId"])
-        dim_station = dim_station.dropna().drop_duplicates(["naptanId"])
-        dim_time = dim_time.drop_duplicates()
-
-        fact_arrival = fact_arrival.dropna().drop_duplicates(["id"])
-
-        logger_transform.info("Dados limpos e deduplicados")
-
-        # cast
-        fact_arrival = fact_arrival.withColumn(
-            "id",
-            col("id").cast("bigint")
-        )
-
-        logger_transform.info("Cast de tipos aplicado")
 
         dim_time = (
             dim_time
+            .withColumn("expectedArrival", date_trunc("hour", col("expectedArrival")))
+            .withColumn("time_id", date_format(col("expectedArrival"), "yyyyMMddHH").cast("int"))
             .withColumn("year", year(col("expectedArrival")))
             .withColumn("month", month(col("expectedArrival")))
             .withColumn("day", day(col("expectedArrival")))
@@ -273,6 +263,46 @@ def transform_arrivals(df: DataFrame)-> tuple[DataFrame, DataFrame, DataFrame, D
             .withColumn("date", to_date(col("expectedArrival")))
             .drop("expectedArrival")
         )
+
+        fact_arrival = df.select(
+            "id",
+            "naptanId",
+            "vehicleId",
+            "timeToStation",
+            "lineId",
+            "expectedArrival"
+        )
+
+        fact_arrival = fact_arrival\
+        .withColumnRenamed("id", "fact_arrival_id") \
+        .withColumnRenamed("naptanId", "station_id") \
+        .withColumnRenamed("vehicleId", "vehicle_id") \
+        .withColumnRenamed("timeToStation", "time_to_station") \
+        .withColumnRenamed("lineId", "line_id") \
+        .withColumn("expectedArrival", date_trunc("hour", col("expectedArrival"))) \
+        .withColumn("time_id", date_format(col("expectedArrival"), "yyyyMMddHH").cast("int")) \
+        .drop("expectedArrival")
+        
+
+        logger_transform.info("Estruturas de dimensão e fato criadas")
+
+        # limpeza
+        dim_vehicle = dim_vehicle.dropna(subset=["vehicle_id"])
+        dim_vehicle = dim_vehicle.drop_duplicates(subset=["vehicle_id"])
+        dim_line = dim_line.drop_duplicates(["line_id"])
+        dim_station = dim_station.drop_duplicates(["station_id"])
+        fact_arrival = fact_arrival.drop_duplicates(["fact_arrival_id"])
+        dim_time = dim_time.drop_duplicates(["time_id"])
+
+        logger_transform.info("Dados limpos e deduplicados")
+
+        # cast
+        fact_arrival = fact_arrival.withColumn(
+            "fact_arrival_id",
+            col("fact_arrival_id").cast("bigint")
+        )
+
+        logger_transform.info("Cast de tipos aplicado")
 
         logger_transform.info("Dimensão tempo criada")
 
