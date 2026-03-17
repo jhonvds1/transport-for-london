@@ -17,9 +17,7 @@ logging.basicConfig(
 
 logger_transform = logging.getLogger("TRANSFORM")
 
-spark = SparkSession.builder.appName("spark").getOrCreate()
-
-def read_data(folder: str) -> DataFrame:
+def read_data(folder: str, spark: SparkSession) -> DataFrame:
     """
     Lê todos os arquivos JSON recursivamente de uma pasta.
     Utiliza leitura distribuída do Spark.
@@ -342,7 +340,10 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
             "modeName",
             "lineId",
             "status",
-            "reason"
+            "reason",
+            col("time.fromDate").alias("start_time"),
+            col("time.toDate").alias("end_time")
+
         )
 
         logger_transform.info("Selecionadas colunas necessárias")
@@ -400,8 +401,8 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
             "lineId",
             "status",
             "reason",
-            col("time.fromDate").alias("start_time"),
-            col("time.toDate").alias("end_time")
+            "start_time",
+            "end_time"
         )
 
         fact_tube_status = fact_tube_status \
@@ -444,15 +445,17 @@ def run_transform():
 
     try:
 
+        spark = SparkSession.builder.appName("spark").getOrCreate()
+
         logger_transform.info("Pipeline de transformação iniciado")
 
-        bikepoint_df = read_data("data/raw/bikepoint")
+        bikepoint_df = read_data("data/raw/bikepoint", spark)
         bikepoint_tables = transform_bikepoint(bikepoint_df)
 
-        tubestatus_df = read_data("data/raw/tubestatus")
+        tubestatus_df = read_data("data/raw/tubestatus", spark)
         tubestatus_tables = transform_status(tubestatus_df)
 
-        arrivals_df = read_data("data/raw/arrivals")
+        arrivals_df = read_data("data/raw/arrivals", spark)
         arrivals_tables = transform_arrivals(arrivals_df)
 
         logger_transform.info("Pipeline de transformação finalizado com sucesso")
