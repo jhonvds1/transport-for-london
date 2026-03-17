@@ -5,6 +5,8 @@ from pyspark.sql.functions import (
     col, explode, first, lit,
     month, year, day, hour,
     date_trunc, to_date, date_format,
+    monotonically_increasing_id,
+    sha2, concat_ws
 )
 
 # Configuração padrão de logs
@@ -353,6 +355,11 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
             "modeName"
         ).drop_duplicates(["lineId"])
 
+        dim_line = dim_line \
+        .withColumnRenamed("lineId", "line_id") \
+        .withColumnRenamed("name", "line_name") \
+        .withColumnRenamed("modeName", "mode") 
+
         logger_transform.info("Dimensão linha criada")
 
         dim_time_start = df_status.select(
@@ -365,6 +372,8 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
 
         dim_time_start = (
             dim_time_start
+            .withColumn("start_time", date_trunc("hour", col("start_time")))
+            .withColumn("time_id", date_format(col("start_time"), "yyyyMMddHH").cast("int"))
             .withColumn("year", year(col("start_time")))
             .withColumn("month", month(col("start_time")))
             .withColumn("day", day(col("start_time")))
@@ -376,6 +385,8 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
 
         dim_time_end = (
             dim_time_end
+            .withColumn("end_time", date_trunc("hour", col("end_time")))
+            .withColumn("time_id", date_format(col("end_time"), "yyyyMMddHH").cast("int"))
             .withColumn("year", year(col("end_time")))
             .withColumn("month", month(col("end_time")))
             .withColumn("day", day(col("end_time")))
@@ -388,8 +399,36 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
         fact_tube_status = df_final.select(
             "lineId",
             "status",
-            "reason"
+            "reason",
+            col("time.fromDate").alias("start_time"),
+            col("time.toDate").alias("end_time")
         )
+
+        fact_tube_status = fact_tube_status \
+        .withColumnRenamed("lineId", "line_id") \
+        .withColumn("start_time", date_trunc("hour", col("start_time"))) \
+        .withColumn("start_time_id", date_format(col("start_time"), "yyyyMMddHH").cast("int")) \
+        .withColumn("end_time", date_trunc("hour", col("end_time"))) \
+        .withColumn("end_time_id", date_format(col("end_time"), "yyyyMMddHH").cast("int")) \
+        .drop("start_time") \
+        .drop("end_time") \
+        .dropDuplicates()
+
+
+        fact_tube_status = fact_tube_status.withColumn(
+            "fact_tube_status_id",
+            sha2(
+                concat_ws(
+                    "||",
+                    fact_tube_status["line_id"],
+                    fact_tube_status["start_time_id"],
+                    fact_tube_status["end_time_id"]
+                ),
+                256
+            )
+        )
+
+        fact_tube_status = fact_tube_status.dropDuplicates(["fact_tube_status_id"])
 
         logger_transform.info("Fato fact_tube_status criado")
 
