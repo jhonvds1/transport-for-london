@@ -4,7 +4,7 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
     col, explode, first, lit,
     month, year, day, hour,
-    date_trunc, to_date
+    date_trunc, to_date, date_format
 )
 
 # Configuração padrão de logs
@@ -169,11 +169,12 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
 
         dim_time = (
             dim_time
-            .withColumn("year", year(col("modified")))
-            .withColumn("month", month(col("modified")))
-            .withColumn("day", day(col("modified")))
-            .withColumn("hour", hour(col("modified")))
             .withColumn("date", to_date(col("modified")))
+            .withColumn("time_id", date_format(col("date"), "yyyyMMdd").cast("int"))
+            .withColumn("year", year(col("date")))
+            .withColumn("month", month(col("date")))
+            .withColumn("day", day(col("date")))
+            .withColumn("hour", hour(col("modified")))
             .drop("modified")
         )
 
