@@ -314,18 +314,19 @@ def transform_arrivals(df: DataFrame)-> tuple[DataFrame, DataFrame, DataFrame, D
         logger_transform.error(f"Erro na transformação ARRIVALS: {e}")
         raise
 
-def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
+def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
 
     try:
-
         logger_transform.info("Iniciando transformação: TUBESTATUS")
 
+        # 🔹 Explode inicial
         df_exploded = df.select(
             "name",
             "modeName",
             explode("lineStatuses").alias("prop")
         )
 
+        # 🔹 Explode de status + validityPeriods
         df_status = df_exploded.select(
             "name",
             "modeName",
@@ -335,6 +336,7 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
             explode("prop.validityPeriods").alias("time")
         )
 
+        # 🔹 Dataset final base
         df_final = df_status.select(
             "name",
             "modeName",
@@ -343,109 +345,94 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, Da
             "reason",
             col("time.fromDate").alias("start_time"),
             col("time.toDate").alias("end_time")
-
-        )
+        ).dropna(subset=["lineId"])
 
         logger_transform.info("Selecionadas colunas necessárias")
 
-        df_final = df_final.dropna(subset=["lineId"])
-
-        dim_line = df_final.select(
-            "lineId",
-            "name",
-            "modeName"
-        ).drop_duplicates(["lineId"])
-
-        dim_line = dim_line \
-        .withColumnRenamed("lineId", "line_id") \
-        .withColumnRenamed("name", "line_name") \
-        .withColumnRenamed("modeName", "mode") 
+        # =========================================================
+        # 🟢 DIM_LINE
+        # =========================================================
+        dim_line = (
+            df_final
+            .select("lineId", "name", "modeName")
+            .dropDuplicates(["lineId"])
+            .withColumnRenamed("lineId", "line_id")
+            .withColumnRenamed("name", "line_name")
+            .withColumnRenamed("modeName", "mode")
+        )
 
         logger_transform.info("Dimensão linha criada")
 
-        dim_time_start = df_status.select(
-            col("time.fromDate").alias("start_time")
-        ).dropna()
+        # =========================================================
+        # 🟢 DIM_TIME (ÚNICA)
+        # =========================================================
+        dim_time = (
+            df_final.select(col("start_time").alias("time"))
+            .union(df_final.select(col("end_time").alias("time")))
+            .dropna()
+        )
 
-        dim_time_end = df_status.select(
-            col("time.toDate").alias("end_time")
-        ).dropna()
+        dim_time = (
+            dim_time
+            .withColumn("time", date_trunc("hour", col("time")))
+            .withColumn("time_id", date_format(col("time"), "yyyyMMddHH").cast("int"))
+            .withColumn("year", year(col("time")))
+            .withColumn("month", month(col("time")))
+            .withColumn("day", day(col("time")))
+            .withColumn("hour", hour(col("time")))
+            .withColumn("date", to_date(col("time")))
+            .drop("time")
+            .dropDuplicates(["time_id"])
+        )
 
-        dim_time_start = (
-            dim_time_start
+        logger_transform.info("Dimensão tempo criada")
+
+        # =========================================================
+        # 🟢 FACT_TUBE_STATUS
+        # =========================================================
+        fact_tube_status = (
+            df_final
+            .select("lineId", "status", "reason", "start_time", "end_time")
+            .withColumnRenamed("lineId", "line_id")
             .withColumn("start_time", date_trunc("hour", col("start_time")))
-            .withColumn("time_id", date_format(col("start_time"), "yyyyMMddHH").cast("int"))
-            .withColumn("year", year(col("start_time")))
-            .withColumn("month", month(col("start_time")))
-            .withColumn("day", day(col("start_time")))
-            .withColumn("hour", hour(col("start_time")))
-            .withColumn("date", to_date(col("start_time")))
-            .drop("start_time")
-            .drop_duplicates()
-        )
-
-        dim_time_end = (
-            dim_time_end
             .withColumn("end_time", date_trunc("hour", col("end_time")))
-            .withColumn("time_id", date_format(col("end_time"), "yyyyMMddHH").cast("int"))
-            .withColumn("year", year(col("end_time")))
-            .withColumn("month", month(col("end_time")))
-            .withColumn("day", day(col("end_time")))
-            .withColumn("hour", hour(col("end_time")))
-            .withColumn("date", to_date(col("end_time")))
-            .drop("end_time")
-            .drop_duplicates()
+            .withColumn("start_time_id", date_format(col("start_time"), "yyyyMMddHH").cast("int"))
+            .withColumn("end_time_id", date_format(col("end_time"), "yyyyMMddHH").cast("int"))
+            .drop("start_time", "end_time")
         )
 
-        fact_tube_status = df_final.select(
-            "lineId",
-            "status",
-            "reason",
-            "start_time",
-            "end_time"
+        # 🔹 Remover duplicados controlados
+        fact_tube_status = fact_tube_status.dropDuplicates(
+            ["line_id", "start_time_id", "end_time_id", "status"]
         )
 
-        fact_tube_status = fact_tube_status \
-        .withColumnRenamed("lineId", "line_id") \
-        .withColumn("start_time", date_trunc("hour", col("start_time"))) \
-        .withColumn("start_time_id", date_format(col("start_time"), "yyyyMMddHH").cast("int")) \
-        .withColumn("end_time", date_trunc("hour", col("end_time"))) \
-        .withColumn("end_time_id", date_format(col("end_time"), "yyyyMMddHH").cast("int")) \
-        .drop("start_time") \
-        .drop("end_time") \
-        .dropDuplicates()
-
-
+        # 🔹 ID da fato (hash mais robusto)
         fact_tube_status = fact_tube_status.withColumn(
             "fact_tube_status_id",
             sha2(
                 concat_ws(
                     "||",
-                    fact_tube_status["line_id"],
-                    fact_tube_status["start_time_id"],
-                    fact_tube_status["end_time_id"]
+                    col("line_id"),
+                    col("start_time_id"),
+                    col("end_time_id"),
+                    col("status")
                 ),
                 256
             )
         )
 
-        fact_tube_status = fact_tube_status.dropDuplicates(["fact_tube_status_id"])
-
-        logger_transform.info("Fato fact_tube_status criado")
-
+        logger_transform.info("Fato fact_tube_status criada")
         logger_transform.info("Transformação TUBESTATUS finalizada")
 
-        return dim_line, dim_time_start, dim_time_end, fact_tube_status
+        return dim_line, dim_time, fact_tube_status
 
     except Exception as e:
         logger_transform.error(f"Erro na transformação TUBESTATUS: {e}")
         raise
 
-def run_transform():
+def run_transform(spark: SparkSession):
 
     try:
-
-        spark = SparkSession.builder.appName("spark").getOrCreate()
 
         logger_transform.info("Pipeline de transformação iniciado")
 
