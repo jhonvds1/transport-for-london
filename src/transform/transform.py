@@ -430,11 +430,89 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
         logger_transform.error(f"Erro na transformação TUBESTATUS: {e}")
         raise
 
-def run_transform(spark: SparkSession):
+def load_refined(dfs: tuple, name: str, names: list, spark: SparkSession):
+    logger_transform.info(f"Iniciando load de {name}")
+    base_path = "data/refined"
+
+    for name_df, df in zip(names, dfs):
+
+        path = f"{base_path}/{name}/{name_df}"
+        path_obj = Path(path)
+
+        # 🔥 1. Criar ID único
+        df = df.withColumn(
+            "id",
+            sha2(concat_ws("||", *df.columns), 256)
+        )
+
+        # 🔥 2. Remover duplicados no batch
+        df = df.dropDuplicates(["id"])
+
+        total_batch = df.count()
+
+        # 🔥 3. Verificar se já existe e aplicar anti-join
+        if path_obj.exists():
+            df_existing = spark.read.parquet(path)
+
+            if "id" in df_existing.columns:
+                df = df.join(df_existing.select("id"), on="id", how="left_anti")
+            else:
+                logger_transform.warning(f"{name_df} sem coluna id antiga, ignorando deduplicação")
+        else:
+            logger_transform.info(f"Primeira carga para {name}/{name_df}")
+
+        total_novos = df.count()
+
+        # 🔥 4. Salvar
+        (
+            df.write.mode("append")
+            .option("compression", "snappy")
+            .parquet(path)
+        )
+
+        logger_transform.info(
+            f"{name}/{name_df} → Batch: {total_batch} | Novos inseridos: {total_novos}"
+        )
+
+    logger_transform.info(f"Finalizando load de {name}")
+
+
+def run_load(data: dict, spark: SparkSession):
+    logger_transform.info("Iniciando processo de carga de dados")
+
+    names_map = {
+        "arrivals": [
+            "dim_vehicle",
+            "dim_line",
+            "dim_station",
+            "dim_time",
+            "fact_arrival"
+        ],
+        "bikepoint": [
+            "dim_station",
+            "dim_time",
+            "fact_bike"
+        ],
+        "tubestatus": [
+            "dim_line",
+            "dim_time",
+            "fact_status"
+        ]
+    }
+
+    for nome, dfs in data.items():
+        load_refined(dfs, nome, names_map[nome], spark)
+
+    logger_transform.info("Finalizando processo de carga de dados")
+
+def run_transform():
 
     try:
 
         logger_transform.info("Pipeline de transformação iniciado")
+
+        spark = SparkSession.builder.appName("spark").getOrCreate()
+
 
         bikepoint_df = read_data("data/raw/bikepoint", spark)
         bikepoint_tables = transform_bikepoint(bikepoint_df)
@@ -447,11 +525,13 @@ def run_transform(spark: SparkSession):
 
         logger_transform.info("Pipeline de transformação finalizado com sucesso")
 
-        return {
+        data = {
             "arrivals": arrivals_tables,
             "bikepoint": bikepoint_tables,
             "tubestatus": tubestatus_tables
         }
+
+        run_load(data, spark)
 
     except Exception as e:
         logger_transform.error(f"Falha no pipeline de transformação: {e}")
