@@ -65,3 +65,4 @@
 {"timestamp":"2026-03-25T17:35:08.717911Z","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/orquestrador.py","logger":"airflow.models.dagbag.BundleDagBag","filename":"dagbag.py","lineno":593}
 {"timestamp":"2026-03-25T17:35:39.134527Z","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/orquestrador.py","logger":"airflow.models.dagbag.BundleDagBag","filename":"dagbag.py","lineno":593}
 {"timestamp":"2026-03-25T17:36:09.461055Z","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/orquestrador.py","logger":"airflow.models.dagbag.BundleDagBag","filename":"dagbag.py","lineno":593}
+{"timestamp":"2026-03-25T17:36:39.834089Z","level":"info","event":"Filling up the DagBag from /opt/airflow/dags/orquestrador.py","logger":"airflow.models.dagbag.BundleDagBag","filename":"dagbag.py","lineno":593}
