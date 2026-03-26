@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import logging
 from datetime import datetime
+import boto3
 
 
 logging.basicConfig(
@@ -18,10 +19,14 @@ def fetch_and_save(url: str, path: Path) -> int:
 
     data = response.json()
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    s3 = boto3.client("s3")
 
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=4)
+    s3.put_object(
+        Bucket = "tfl-port",
+        Key = str(path),
+        Body = json.dumps(data, indent = 4),
+        ContentType = "application/json"
+    )
 
     return len(data)
 
@@ -34,7 +39,7 @@ def get_bikepoints() -> None:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        path = Path(f"data/raw/bikepoint/bikepoint_{timestamp}.json")
+        path = Path(f"raw/bikepoint/bikepoint_{timestamp}.json")
 
         saved = fetch_and_save(url, path)
         
@@ -52,7 +57,7 @@ def get_line_status() -> None:
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        path = Path(f"data/raw/tubestatus/tubestatus_{timestamp}.json")
+        path = Path(f"raw/tubestatus/tubestatus_{timestamp}.json")
 
         saved = fetch_and_save(url, path)
 
@@ -81,7 +86,7 @@ def get_yellow_messages() -> None:
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            path = Path(f"data/raw/arrivals/{id}/arrivals_{timestamp}.json")
+            path = Path(f"raw/arrivals/{id}/arrivals_{timestamp}.json")
 
             saved = fetch_and_save(url, path)
             

@@ -9,8 +9,8 @@ def run_pipeline():
 
     spark = SparkSession.builder.appName("spark").getOrCreate()
     run_extract()
-    data = run_transform(spark)
-    run_load(data, spark)
+    # data = run_transform(spark)
+    # run_load(data, spark)
 
 
 if __name__ == "__main__":
