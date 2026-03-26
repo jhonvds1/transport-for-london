@@ -1,9 +1,6 @@
 venv/
 __pycache__/
 data/
-api.txt
 .env
-dags/
-config/
 logs/
-plugins/
+credentials
