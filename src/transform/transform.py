@@ -1,11 +1,11 @@
 import logging
 from pathlib import Path
 from pyspark.sql import SparkSession, DataFrame
+import boto3
 from pyspark.sql.functions import (
     col, explode, first, lit,
     month, year, day, hour,
     date_trunc, to_date, date_format,
-    monotonically_increasing_id,
     sha2, concat_ws
 )
 
@@ -17,37 +17,11 @@ logging.basicConfig(
 
 logger_transform = logging.getLogger("TRANSFORM")
 
-def read_data(folder: str, spark: SparkSession) -> DataFrame:
-    """
-    Lê todos os arquivos JSON recursivamente de uma pasta.
-    Utiliza leitura distribuída do Spark.
-    """
-
-    try:
-        logger_transform.info(f"Iniciando leitura de dados da pasta: {folder}")
-
-        files = list(Path(folder).rglob("*.json"))
-
-        if not files:
-            logger_transform.warning(f"Nenhum arquivo JSON encontrado em {folder}")
-
-        for file in files:
-            logger_transform.info(f"Arquivo detectado: {file}")
-
-        df = (
-            spark.read
-            .option("recursiveFileLookup", "true")
-            .option("multiLine", "true")
-            .json(folder)
-        )
-
-        logger_transform.info(f"Leitura concluída com sucesso: {folder}")
-
-        return df
-
-    except Exception as e:
-        logger_transform.error(f"Erro ao ler dados de {folder}: {e}")
-        raise
+def read_data(spark: SparkSession, path: str):
+    return spark.read \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .csv(path)
 
 def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
     """
@@ -460,16 +434,15 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
 def run_transform(spark: SparkSession):
 
     try:
-
         logger_transform.info("Pipeline de transformação iniciado")
 
-        bikepoint_df = read_data("data/raw/bikepoint", spark)
+        bikepoint_df = read_data(spark, "s3a://tfl-port/raw/bikepoint/")
         bikepoint_tables = transform_bikepoint(bikepoint_df)
 
-        tubestatus_df = read_data("data/raw/tubestatus", spark)
+        tubestatus_df = read_data(spark, "s3a://tfl-port/raw/tubestatus/")
         tubestatus_tables = transform_status(tubestatus_df)
 
-        arrivals_df = read_data("data/raw/arrivals", spark)
+        arrivals_df = read_data(spark, "s3a://tfl-port/raw/arrivals/")
         arrivals_tables = transform_arrivals(arrivals_df)
 
         logger_transform.info("Pipeline de transformação finalizado com sucesso")
