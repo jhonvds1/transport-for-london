@@ -8,6 +8,7 @@ from pyspark.sql.functions import (
     date_trunc, to_date, date_format,
     sha2, concat_ws
 )
+from pyspark.sql.utils import AnalysisException
 
 # Configuração padrão de logs
 logging.basicConfig(
@@ -17,11 +18,22 @@ logging.basicConfig(
 
 logger_transform = logging.getLogger("TRANSFORM")
 
-def read_data(spark: SparkSession, path: str):
-    return spark.read \
-        .option("header", True) \
-        .option("inferSchema", True) \
-        .csv(path)
+def read_data(spark, path):
+    try:
+        df = spark.read \
+            .option("multiline", "true") \
+            .json(path)
+        
+        # força uma ação pra validar
+        if df.rdd.isEmpty():
+            print(f"Pasta vazia: {path}")
+            return None
+        
+        return df
+
+    except AnalysisException:
+        print(f"Erro ou pasta vazia: {path}")
+        return None
 
 def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
     """
@@ -436,14 +448,17 @@ def run_transform(spark: SparkSession):
     try:
         logger_transform.info("Pipeline de transformação iniciado")
 
+        # BIKEPOINT
         bikepoint_df = read_data(spark, "s3a://tfl-port/raw/bikepoint/")
-        bikepoint_tables = transform_bikepoint(bikepoint_df)
+        bikepoint_tables = transform_bikepoint(bikepoint_df) if bikepoint_df is not None else None
 
+        # TUBESTATUS
         tubestatus_df = read_data(spark, "s3a://tfl-port/raw/tubestatus/")
-        tubestatus_tables = transform_status(tubestatus_df)
+        tubestatus_tables = transform_status(tubestatus_df) if tubestatus_df is not None else None
 
+        # ARRIVALS
         arrivals_df = read_data(spark, "s3a://tfl-port/raw/arrivals/")
-        arrivals_tables = transform_arrivals(arrivals_df)
+        arrivals_tables = transform_arrivals(arrivals_df) if arrivals_df is not None else None
 
         logger_transform.info("Pipeline de transformação finalizado com sucesso")
 

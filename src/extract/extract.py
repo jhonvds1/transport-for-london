@@ -19,13 +19,18 @@ def fetch_and_save(url: str, path: Path) -> int:
 
     data = response.json()
 
+    # 🔥 NÃO salva se vazio
+    if not data:
+        print(f"Nenhum dado retornado para {url}, não salvando.")
+        return 0
+
     s3 = boto3.client("s3")
 
     s3.put_object(
-        Bucket = "tfl-port",
-        Key = str(path),
-        Body = json.dumps(data, indent = 4),
-        ContentType = "application/json"
+        Bucket="tfl-port",
+        Key=str(path),
+        Body=json.dumps(data, indent=4),
+        ContentType="application/json"
     )
 
     return len(data)
