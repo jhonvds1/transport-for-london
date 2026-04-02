@@ -11,13 +11,17 @@ with DAG(
 ) as dag:
 
     run_pipeline = DockerOperator(
-        task_id="run_pipeline",
-        image="airflow_spark:1.4",
-        auto_remove="success",
-        docker_url="unix://var/run/docker.sock",
-        network_mode="bridge",
-        mounts=[Mount(source="C:/Users/jonat/OneDrive/Documentos/tfl/data", target="/app/data", type="bind")],
-        mount_tmp_dir=False
-    )
-
-    #TODO: VOLUME DO LOAD?
+    task_id="run_pipeline",
+    image="airflow_spark:2.7",
+    auto_remove="success",
+    docker_url="unix://var/run/docker.sock",
+    network_mode="bridge",
+    mounts=[
+        Mount(
+            source="C:/Users/jonat/.aws",
+            target="/root/.aws",
+            type="bind"
+        )
+    ],
+    mount_tmp_dir=False
+)
