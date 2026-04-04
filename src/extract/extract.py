@@ -1,74 +1,99 @@
-import requests
+import sys
 import json
-from pathlib import Path
 import logging
 from datetime import datetime
+from pathlib import Path
+
+import requests
 import boto3
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
 
+# -------------------------------
+# Recebe argumentos do Glue
+# -------------------------------
+args = getResolvedOptions(sys.argv, ['JOB_NAME'])
 
+# -------------------------------
+# Inicializa Spark e Glue Context
+# Usar getOrCreate() para evitar conflito no Glue
+# -------------------------------
+sc = SparkContext.getOrCreate()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+
+# Inicializa o Job do Glue
+job = Job(glueContext)
+
+# -------------------------------
+# Configuração de logging
+# -------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format= "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-
 logger_extract = logging.getLogger("EXTRACT")
 
-def fetch_and_save(url: str, path: Path) -> int:
+# -------------------------------
+# Função para buscar dados da API e salvar no S3
+# -------------------------------
+def fetch_and_save(url: str, bucket: str, key: str) -> int:
+    """
+    Faz requisição GET em uma URL, salva resultado no S3 e retorna quantidade de registros.
+    """
     response = requests.get(url, timeout=30)
-    response.raise_for_status()
+    response.raise_for_status()  # Lança erro se status != 200
 
     data = response.json()
 
     if not data:
-        print(f"Nenhum dado retornado para {url}, não salvando.")
+        logger_extract.warning(f"Nenhum dado retornado para {url}, não salvando.")
         return 0
 
     s3 = boto3.client("s3")
 
     s3.put_object(
-        Bucket="tfl-port",
-        Key=str(path),
+        Bucket=bucket,
+        Key=key,
         Body=json.dumps(data, indent=4),
         ContentType="application/json"
     )
 
     return len(data)
 
-
+# -------------------------------
+# Funções de extração
+# -------------------------------
 def get_bikepoints() -> None:
     try:
         logger_extract.info("Iniciando extração BikePoint")
-       
         url = "https://api.tfl.gov.uk/BikePoint"
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        bucket = "tfl-port"
+        key = f"raw/bikepoint/bikepoint_{timestamp}.json"
+        path = f"s3://{bucket}/{key}"  # Apenas para log
 
-        path = Path(f"raw/bikepoint/bikepoint_{timestamp}.json")
-
-        saved = fetch_and_save(url, path)
-        
+        saved = fetch_and_save(url, bucket, key)
         logger_extract.info(f"{saved} registros salvos em {path}")
-
-        logger_extract.info("Finalizando processo de extracao de dados da api de bikepoint")
+        logger_extract.info("Finalizando processo de extração de BikePoint")
     except Exception as e:
         logger_extract.error(f"Erro BikePoint: {e}")
         raise
 
 def get_line_status() -> None:
-    logger_extract.info("Iniciando extracao de status da linha")
     try:
-        url = f"https://api.tfl.gov.uk/Line/Mode/tube/Status"
-
+        logger_extract.info("Iniciando extração de status da linha")
+        url = "https://api.tfl.gov.uk/Line/Mode/tube/Status"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        bucket = "tfl-port"  # corrigido typo
+        key = f"raw/tubestatus/tubestatus_{timestamp}.json"
+        path = f"s3://{bucket}/{key}"  # Apenas para log
 
-        path = Path(f"raw/tubestatus/tubestatus_{timestamp}.json")
-
-        saved = fetch_and_save(url, path)
-
+        saved = fetch_and_save(url, bucket, key)
         logger_extract.info(f"{saved} registros salvos em {path}")
-
-        logger_extract.info("Finalizando extracao de status da linha")
-
+        logger_extract.info("Finalizando extração de status da linha")
     except Exception as e:
         logger_extract.error(f"Erro status da linha: {e}")
         raise
@@ -80,38 +105,36 @@ def get_yellow_messages() -> None:
         "490013767D",
         "490000254S"
     ]
-    
-    for id in stop_ids:
-        
-        logger_extract.info(f"Iniciando extracao chegada de: {id}")
 
+    bucket = "tfl-port"
+
+    for stop_id in stop_ids:
         try:
-            url = f"https://api.tfl.gov.uk/StopPoint/{id}/Arrivals"
-
+            logger_extract.info(f"Iniciando extração chegada de: {stop_id}")
+            url = f"https://api.tfl.gov.uk/StopPoint/{stop_id}/Arrivals"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            key = f"raw/arrivals/{stop_id}/arrivals_{timestamp}.json"
+            path = f"s3://{bucket}/{key}"  # Apenas para log
 
-            path = Path(f"raw/arrivals/{id}/arrivals_{timestamp}.json")
-
-            saved = fetch_and_save(url, path)
-            
+            saved = fetch_and_save(url, bucket, key)
             logger_extract.info(f"{saved} registros salvos em {path}")
-
-            logger_extract.info(f"Finalizando extracao chegada de: {id}")
-
+            logger_extract.info(f"Finalizando extração chegada de: {stop_id}")
         except Exception as e:
-            logger_extract.error(f"Erro dados de chegada: {e} em {id}")
+            logger_extract.error(f"Erro dados de chegada: {e} em {stop_id}")
 
-
+# -------------------------------
+# Função principal de extração
+# -------------------------------
 def run_extract() -> None:
-    logger_extract.info("Iniciando extracao de dados")
+    logger_extract.info("Iniciando extração de dados")
     get_bikepoints()
     get_line_status()
     get_yellow_messages()
-    logger_extract.info("Finalizando extracao de dados")
+    logger_extract.info("Finalizando extração de dados")
 
-
-
-
-
-
-
+# -------------------------------
+# Execução do Glue Job
+# -------------------------------
+job.init(args['JOB_NAME'], args)
+run_extract()
+job.commit()  # Finaliza o Job corretamente no Glue
