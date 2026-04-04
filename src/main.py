@@ -1,7 +1,6 @@
 from src.extract.extract import run_extract
 from src.transform.transform import run_transform
 from src.load.load_s3 import run_load
-import logging
 from pyspark.sql import SparkSession
 
 
