@@ -19,7 +19,6 @@ def fetch_and_save(url: str, path: Path) -> int:
 
     data = response.json()
 
-    # 🔥 NÃO salva se vazio
     if not data:
         print(f"Nenhum dado retornado para {url}, não salvando.")
         return 0
