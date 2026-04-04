@@ -72,7 +72,7 @@ try:
     logger.info("Iniciando etapa de carga")
 
     # persiste dados transformados (ex: S3 trusted/refined, parquet)
-    run_load(data, spark)
+    run_load(data)
 
     logger.info("Carga concluída")
 
