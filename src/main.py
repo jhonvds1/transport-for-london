@@ -61,7 +61,7 @@ try:
 
     # transforma dados usando Spark (limpeza, schema, regras de negócio)
     # retorna DataFrame pronto para persistência
-    data = run_transform(spark)
+    data = run_transform()
 
     logger.info("Transformação concluída")
 
