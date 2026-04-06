@@ -12,22 +12,6 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 
 # -------------------------------
-# Recebe argumentos do Glue
-# -------------------------------
-args = getResolvedOptions(sys.argv, ['JOB_NAME'])
-
-# -------------------------------
-# Inicializa Spark e Glue Context
-# Usar getOrCreate() para evitar conflito no Glue
-# -------------------------------
-sc = SparkContext.getOrCreate()
-glueContext = GlueContext(sc)
-spark = glueContext.spark_session
-
-# Inicializa o Job do Glue
-job = Job(glueContext)
-
-# -------------------------------
 # Configuração de logging
 # -------------------------------
 logging.basicConfig(
@@ -131,10 +115,3 @@ def run_extract() -> None:
     get_line_status()
     get_yellow_messages()
     logger_extract.info("Finalizando extração de dados")
-
-# -------------------------------
-# Execução do Glue Job
-# -------------------------------
-job.init(args['JOB_NAME'], args)
-run_extract()
-job.commit()  # Finaliza o Job corretamente no Glue

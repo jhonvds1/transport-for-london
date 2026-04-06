@@ -9,26 +9,11 @@ import logging
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     col, explode, first, lit,
-    month, year, day, hour,
+    month, year, dayofmonth, hour,
     date_trunc, to_date, date_format,
     sha2, concat_ws
 )
 from pyspark.sql.utils import AnalysisException
-
-# ============================
-# Recebe argumentos do Glue
-# ============================
-# Glue passa parâmetros para o job, como JOB_NAME
-args = getResolvedOptions(sys.argv, ['JOB_NAME'])
-
-# ============================
-# Inicializa contextos do Glue
-# ============================
-# SparkContext e GlueContext são obrigatórios no Glue
-sc = SparkContext()
-glueContext = GlueContext(sc)
-spark = glueContext.spark_session  # SparkSession já disponível
-job = Job(glueContext)  # Job do Glue
 
 # ============================
 # Configuração de logs
@@ -128,7 +113,7 @@ def transform_bikepoint(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]
             .withColumn("time_id", date_format(col("modified"), "yyyyMMddHH").cast("int")) \
             .withColumn("year", year(col("date"))) \
             .withColumn("month", month(col("date"))) \
-            .withColumn("day", day(col("date"))) \
+            .withColumn("day", dayofmonth(col("date"))) \
             .withColumn("hour", hour(col("modified"))) \
             .drop("modified")
         logger_transform.info("Dimensão dim_time criada")
@@ -188,7 +173,7 @@ def transform_arrivals(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame, 
             .withColumn("time_id", date_format(col("expectedArrival"), "yyyyMMddHH").cast("int")) \
             .withColumn("year", year(col("expectedArrival"))) \
             .withColumn("month", month(col("expectedArrival"))) \
-            .withColumn("day", day(col("expectedArrival"))) \
+            .withColumn("day", dayofmonth(col("expectedArrival"))) \
             .withColumn("hour", hour(col("expectedArrival"))) \
             .withColumn("date", to_date(col("expectedArrival"))) \
             .drop("expectedArrival").drop_duplicates(["time_id"])
@@ -255,7 +240,7 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
             .withColumn("time_id", date_format(col("time"), "yyyyMMddHH").cast("int")) \
             .withColumn("year", year(col("time"))) \
             .withColumn("month", month(col("time"))) \
-            .withColumn("day", day(col("time"))) \
+            .withColumn("day", dayofmonth(col("time"))) \
             .withColumn("hour", hour(col("time"))) \
             .withColumn("date", to_date(col("time"))) \
             .drop("time").drop_duplicates(["time_id"])
@@ -282,16 +267,13 @@ def transform_status(df: DataFrame) -> tuple[DataFrame, DataFrame, DataFrame]:
 # ============================
 # Função principal para rodar pipeline
 # ============================
-def run_transform():
+def run_transform(spark):
     """
     Executa pipeline completo de transformação usando SparkSession do Glue
     e retorna um dicionário com DataFrames transformados.
     """
     try:
         logger_transform.info("Pipeline de transformação iniciado")
-
-        # SparkSession do Glue
-        spark = glueContext.spark_session
 
         # BIKEPOINT
         bikepoint_df = read_data(spark, "s3://tfl-port/raw/bikepoint/")
@@ -342,12 +324,3 @@ def run_transform():
     except Exception as e:
         logger_transform.error(f"Falha no pipeline de transformação: {e}")
         raise
-
-# ============================
-# Inicializa e comita o job
-# ============================
-job.init(args['JOB_NAME'], args)
-
-transformed_data = run_transform()
-
-job.commit()

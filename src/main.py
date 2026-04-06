@@ -61,7 +61,7 @@ try:
 
     # transforma dados usando Spark (limpeza, schema, regras de negócio)
     # retorna DataFrame pronto para persistência
-    data = run_transform()
+    data = run_transform(spark)
 
     logger.info("Transformação concluída")
 
@@ -72,7 +72,7 @@ try:
     logger.info("Iniciando etapa de carga")
 
     # persiste dados transformados (ex: S3 trusted/refined, parquet)
-    run_load(data)
+    run_load(spark, data)
 
     logger.info("Carga concluída")
 
@@ -89,3 +89,4 @@ except Exception as e:
 
     # propaga erro para o Glue marcar execução como FAILED
     raise
+
