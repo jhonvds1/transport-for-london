@@ -1,6 +1,6 @@
 from airflow import DAG
 from datetime import datetime
-from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.providers.amazon.aws.operators.glue import AwsGlueJobOperator
 from docker.types import Mount
 
 with DAG(
@@ -10,18 +10,9 @@ with DAG(
     catchup=False
 ) as dag:
 
-    run_pipeline = DockerOperator(
-    task_id="run_pipeline",
-    image="airflow_spark:2.7",
-    auto_remove="success",
-    docker_url="unix://var/run/docker.sock",
-    network_mode="bridge",
-    mounts=[
-        Mount(
-            source="C:/Users/jonat/.aws",
-            target="/root/.aws",
-            type="bind"
-        )
-    ],
-    mount_tmp_dir=False
+    run_pipeline = AwsGlueJobOperator(
+    task_id="run_tfl_main",
+    job_name = 'tfl-main',
+    iam_role_name = 'mwaa',
+    region_name = 'us-east-1'
 )
