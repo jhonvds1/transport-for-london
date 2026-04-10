@@ -120,3 +120,17 @@ CloudWatch (Logs & Monitoramento)
 ---
 
 ## 📁 Estrutura do Projeto
+
+```
+tfl/
+├── dags/ # DAGs do Airflow (MWAA)
+├── src/ # Código ETL
+├── docker/ # Ambiente local (referência)
+│ ├── docker-compose.yaml
+│ └── Dockerfile
+├── config/ # Configurações
+├── requirements.txt
+├── README.md
+```
+
+![diagrama](diagrama.jpeg)
