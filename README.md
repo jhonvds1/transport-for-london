@@ -49,6 +49,7 @@ CloudWatch (Logs & Monitoramento)
 5. Os dados são armazenados no Amazon S3 (camadas do Data Lake)  
 6. Os dados ficam disponíveis para consulta via Athena  
 
+
 ---
 
 ## 🚀 Stack Tecnológica
