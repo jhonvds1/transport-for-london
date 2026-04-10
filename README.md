@@ -132,3 +132,5 @@ tfl/
 ├── requirements.txt
 ├── README.md
 ```
+
+![diagrama](diagrama.jpeg)
